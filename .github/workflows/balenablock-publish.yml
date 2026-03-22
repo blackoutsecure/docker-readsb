@@ -107,6 +107,7 @@ jobs:
           grep "^version:" docker-compose.yml
 
       - name: Publish Balena block release
+        if: github.event_name != 'workflow_dispatch'
         uses: balena-io/deploy-to-balena-action@master
         with:
           balena_token: ${{ secrets.BALENA_API_TOKEN }}
@@ -114,6 +115,21 @@ jobs:
           layer_cache: true
           debug: false
           source: .
+
+      - name: Install Balena CLI for manual publish
+        if: github.event_name == 'workflow_dispatch'
+        run: npm install -g balena-cli
+
+      - name: Publish Balena block release manually
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          balena login --token "${BALENA_TOKEN}"
+          balena push "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" \
+            --source . \
+            --release-tag balena-ci-commit-sha "${GITHUB_SHA}"
 
       - name: Log deployment info
         run: |
