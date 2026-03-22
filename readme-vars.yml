@@ -3,7 +3,7 @@
 project_name: readsb
 project_url: "https://github.com/wiedehopf/readsb"
 project_logo: "https://raw.githubusercontent.com/wiedehopf/readsb/dev/logo.png"
-project_blurb: "[{{ project_name|capitalize }}]({{ project_url }}) is a simple high-performance ADS-B decoder for Mode S messages. This container is a LinuxServer.io-style implementation with hardened runtime defaults, s6 process supervision, and support for RTL-SDR devices."
+project_blurb: "[{{ project_name|capitalize }}]({{ project_url }}) is an ADS-B decoder. This image is an unofficial community container built in a LinuxServer.io-style pattern, with hardened runtime defaults, s6 process supervision, and RTL-SDR support. Sponsored and maintained by Blackout Secure (https://blackoutsecure.app)."
 project_lsio_github_repo_url: "https://github.com/blackoutsecure/docker-readsb"
 project_categories: "Amateur Radio,Aviation,Networking,ADS-B"
 

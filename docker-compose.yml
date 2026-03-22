@@ -3,11 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: docker.io/blackoutsecure/docker-readsb:latest
+    image: blackoutsecure/readsb:latest
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr --gain auto
+      - READSB_ARGS=--net --device-type rtlsdr
     volumes:
       - ./config:/config
     devices:

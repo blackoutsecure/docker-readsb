@@ -47,8 +47,6 @@ if [[ -n ${READSB_ARGS:-} ]]; then
 else
     readsb_args=(
         --net
-        --device-type rtlsdr
-        --gain auto
         --write-json "${readsb_run_dir}"
         --write-json-every 1
         --db-file "${tar1090_db_path}"
@@ -77,6 +75,27 @@ if ! has_readsb_opt "--db-file"; then
     readsb_args+=(--db-file "${tar1090_db_path}")
 fi
 
+# Resolve the value of --device-type from the effective args.
+_dt_val=""
+_dt_prev=""
+for _dt_tok in "${readsb_args[@]}"; do
+    if [[ ${_dt_prev} == "--device-type" ]]; then
+        _dt_val=${_dt_tok}
+        break
+    fi
+    if [[ ${_dt_tok} == "--device-type="* ]]; then
+        _dt_val=${_dt_tok#--device-type=}
+        break
+    fi
+    _dt_prev=${_dt_tok}
+done
+unset _dt_prev _dt_tok
+
+# If device type is rtlsdr and no --gain was provided, default to --gain auto.
+if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
+    readsb_args+=(--gain auto)
+fi
+
 readsb_args_rendered=$(printf '%q ' "${readsb_args[@]}")
 readsb_args_rendered=${readsb_args_rendered% }
 
@@ -102,10 +121,12 @@ print_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
 print_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
 print_kv "effective_ARGS" "${readsb_args_rendered}"
 
-if [[ ! -e /dev/bus/usb ]]; then
-    echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input." >&2
-elif [[ ! -r /dev/bus/usb ]]; then
-    echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is not readable by the container. Check device mapping and runtime permissions." >&2
+if [[ ${_dt_val} == "rtlsdr" ]]; then
+    if [[ ! -e /dev/bus/usb ]]; then
+        echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input." >&2
+    elif [[ ! -r /dev/bus/usb ]]; then
+        echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is not readable by the container. Check device mapping and runtime permissions." >&2
+    fi
 fi
 
 if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then

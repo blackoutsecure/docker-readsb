@@ -1,0 +1,295 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+      - released
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: docker.io
+  DOCKER_NAMESPACE: ${{ vars.DOCKER_NAMESPACE || secrets.DOCKER_USERNAME || 'blackoutsecure' }}
+  IMAGE_NAME: readsb
+  READSB_REPO_URL: https://github.com/wiedehopf/readsb
+
+jobs:
+  release-metadata:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      release_name: ${{ steps.metadata.outputs.release_name }}
+      upstream_commit: ${{ steps.metadata.outputs.upstream_commit }}
+      upstream_version: ${{ steps.metadata.outputs.upstream_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract release metadata
+        id: metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          set -euo pipefail
+
+          # Extract version from tag (e.g., v1.2.3 -> 1.2.3)
+          VERSION="${RELEASE_TAG#v}"
+          RELEASE_NAME="${{ github.event.release.name }}"
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_name=${RELEASE_NAME}" >> "$GITHUB_OUTPUT"
+
+          # Fetch upstream metadata
+          TMPDIR="$(mktemp -d)"
+          git init "${TMPDIR}" >/dev/null
+          git -C "${TMPDIR}" remote add origin "${READSB_REPO_URL}.git"
+          git -C "${TMPDIR}" fetch --depth 1 origin dev >/dev/null
+
+          UPSTREAM_COMMIT="$(git -C "${TMPDIR}" rev-parse FETCH_HEAD | cut -c1-7)"
+          UPSTREAM_VERSION="$(git -C "${TMPDIR}" show FETCH_HEAD:version 2>/dev/null || git -C "${TMPDIR}" describe --tags --always 2>/dev/null || echo unknown)"
+
+          echo "upstream_commit=${UPSTREAM_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "upstream_version=${UPSTREAM_VERSION}" >> "$GITHUB_OUTPUT"
+
+  tag-images:
+    needs: release-metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: docker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.release-metadata.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-metadata.outputs.version }}
+            type=semver,pattern={{major}},value=${{ needs.release-metadata.outputs.version }}
+            type=ref,event=tag
+            type=sha
+
+      - name: Build and push multi-arch release
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          no-cache: false
+          pull: true
+          provenance: false
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+          build-args: |
+            READSB_REPO_URL=${{ env.READSB_REPO_URL }}
+            READSB_REPO_BRANCH=dev
+
+  create-release-notes:
+    needs: release-metadata
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate release notes
+        id: notes
+        env:
+          RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          UPSTREAM_COMMIT: ${{ needs.release-metadata.outputs.upstream_commit }}
+          UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+        run: |
+          cat > /tmp/release_notes.md << 'EOF'
+          ## Release ${{ env.RELEASE_VERSION }}
+
+          ### Docker Hub Images
+
+          **Primary Registry:**
+          ```bash
+          docker pull ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
+          docker pull ${{ env.DOCKER_IMAGE }}:latest
+          ```
+
+          **Available Tags:**
+          - `${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}` - Specific version (recommended for production)
+          - `${{ env.DOCKER_IMAGE }}:latest` - Latest stable release
+          - Multi-arch support: amd64, arm64
+
+          ### Build Information
+
+          - **Image Version:** ${{ env.RELEASE_VERSION }}
+          - **Release Tag:** ${{ env.RELEASE_TAG }}
+          - **Upstream readsb:** ${{ env.UPSTREAM_VERSION }} (commit: ${{ env.UPSTREAM_COMMIT }})
+          - **Build Date:** $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          - **Repository:** ${{ github.server_url }}/${{ github.repository }}
+
+          ### Supported Architectures
+
+          | Architecture | Platform |
+          | --- | --- |
+          | x86-64 | linux/amd64 |
+          | ARM 64-bit | linux/arm64v8 |
+
+          ### Quick Start
+
+          ```bash
+          docker run -d \
+            --name readsb \
+            -e TZ=Etc/UTC \
+            -e READSB_ARGS="--net --device-type rtlsdr --gain auto" \
+            -p 30001:30001 \
+            -p 30002:30002 \
+            -p 30003:30003 \
+            -p 30004:30004 \
+            -p 30005:30005 \
+            -p 30104:30104 \
+            -v readsb-config:/config \
+            --device=/dev/bus/usb:/dev/bus/usb \
+            ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
+          ```
+
+          ### Documentation
+
+          - [Full README](https://github.com/${{ github.repository }}/blob/${{ github.ref }}/README.md)
+          - [Upstream readsb Documentation](https://github.com/wiedehopf/readsb)
+          - [Release History](https://github.com/${{ github.repository }}/releases)
+
+          ### About This Image
+
+          - **Built with:** LinuxServer.io-style patterns (s6, hardened defaults)
+          - **Maintained by:** Blackout Secure
+          - **Features:** RTL-SDR support, multi-protocol outputs, JSON API, tar1090 database
+          - **Official Status:** Unofficial community container (not affiliated with LinuxServer.io or wiedehopf)
+          EOF
+          cat /tmp/release_notes.md
+
+      - name: Update Release Notes
+        uses: softprops/action-gh-release@v1
+        if: github.event.action == 'published'
+        with:
+          body_path: /tmp/release_notes.md
+          append_body: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  notify-upstream:
+    needs: release-metadata
+    runs-on: ubuntu-latest
+    if: ${{ github.event.action == 'published' }}
+    steps:
+      - name: Prepare upstream notification
+        id: upstream-notice
+        env:
+          RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+        run: |
+          cat > /tmp/upstream_notice.txt << 'EOF'
+          ## Unofficial Community Image Release: ${{ env.RELEASE_VERSION }}
+
+          This is an automated notification about a new release of the unofficial Blackout Secure community container image for readsb.
+
+          **Release Details:**
+          - Container Version: ${{ env.RELEASE_VERSION }}
+          - Upstream readsb Version: ${{ env.UPSTREAM_VERSION }}
+          - Image: ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
+          - Release URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.RELEASE_TAG }}
+
+          **About This Image:**
+          - Built with LinuxServer.io-style patterns (s6, hardened defaults)
+          - Unofficial community container maintained by Blackout Secure
+          - Supports: x86-64 (amd64), ARM 64-bit (arm64v8)
+          - Includes: RTL-SDR support, network outputs, JSON API, tar1090 database
+          - Available on Docker Hub: ${{ env.DOCKER_IMAGE }}
+
+          This notification is provided for informational purposes. For upstream readsb issues or discussions, please see the main repository.
+
+          ---
+          *Generated by automated release workflow*
+          EOF
+          cat /tmp/upstream_notice.txt
+
+      - name: Create GitHub Issue on upstream (optional, commented out)
+        # This creates an issue on the upstream readsb project when a release is published.
+        # Uncomment to enable, but requires GitHub token with repo permissions.
+        if: false
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Note: This requires GITHUB_TOKEN with repo permissions on upstream
+            // For now, this is commented out and can be enabled with proper credentials
+
+            const upstreamRepo = {
+              owner: 'wiedehopf',
+              repo: 'readsb'
+            };
+
+            const releaseVersion = '${{ needs.release-metadata.outputs.version }}';
+            const upstreamVersion = '${{ needs.release-metadata.outputs.upstream_version }}';
+
+            const body = `
+            ## Unofficial Community Image Release
+
+            A new version (\`${releaseVersion}\`) of the Blackout Secure unofficial community container has been released.
+
+            - **Upstream Version:** ${upstreamVersion}
+            - **Repository:** ${{ github.repository }}
+            - **Release:** ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.event.release.tag_name }}
+            - **Supported Architectures:** x86-64, ARM 64-bit
+            - **Features:** RTL-SDR, multi-protocol outputs, JSON API, network support
+
+            This is an informational notice from the community. For details, see the container repository.
+            `;
+
+            // Uncomment when ready:
+            // github.rest.issues.create({
+            //   owner: upstreamRepo.owner,
+            //   repo: upstreamRepo.repo,
+            //   title: `[Community] Unofficial container release v${releaseVersion}`,
+            //   body: body,
+            //   labels: ['community', 'docker']
+            // });
+
+  summary:
+    needs: [release-metadata, tag-images, create-release-notes]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Release Summary
+        env:
+          RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
+        run: |
+          cat << EOF
+          ===== Release Complete =====
+
+          Version:           ${{ env.RELEASE_VERSION }}
+          Docker Hub Image:  ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
+          Upstream readsb:   ${{ env.UPSTREAM_VERSION }}
+          Repository:        ${{ github.repository }}
+          Released at:       $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+          Next Steps:
+          1. Review release on GitHub: ${{ github.server_url }}/${{ github.repository }}/releases
+          2. Test image pull: docker pull ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
+          3. (Optional) Create an issue on upstream readsb linking to this release
+
+          =============================
+          EOF

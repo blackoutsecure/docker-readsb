@@ -10,7 +10,7 @@ services:
     network_mode: host
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr --gain auto
+      - READSB_ARGS=--net --device-type rtlsdr
     volumes:
       - config:/config
     devices:
