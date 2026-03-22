@@ -12,6 +12,8 @@ This repository is not an official LinuxServer.io image release.
 
 Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app).
 
+[![balena deploy button](https://www.balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/blackoutsecure/docker-readsb)
+
 ---
 
 ## Table of Contents
