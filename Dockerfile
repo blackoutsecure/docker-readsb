@@ -80,7 +80,7 @@ ENV HOME="/config" \
     READSB_USER="${READSB_USER}" \
     READSB_RUN_DIR="${READSB_RUN_DIR}" \
     TAR1090_DB_PATH="${TAR1090_DB_PATH}" \
-    READSB_ARGS="--net --device-type rtlsdr --gain auto --write-json ${READSB_RUN_DIR} --write-json-every 1 --db-file ${TAR1090_DB_PATH}"
+    READSB_ARGS="--net --device-type rtlsdr --write-json ${READSB_RUN_DIR} --write-json-every 1 --db-file ${TAR1090_DB_PATH}"
 
 RUN apk add --no-cache \
         librtlsdr \

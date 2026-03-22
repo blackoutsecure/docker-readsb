@@ -1,31 +1,45 @@
+version: '3.8'
+
 services:
   readsb:
     build:
       context: .
       dockerfile: Dockerfile
-    image: blackoutsecure/readsb:latest
     container_name: readsb
     environment:
       - TZ=Etc/UTC
       - READSB_ARGS=--net --device-type rtlsdr
     volumes:
-      - ./config:/config
+      - config:/config
+      - json:/run/readsb
     devices:
       - /dev/bus/usb:/dev/bus/usb
     ports:
-      - "30001:30001"
-      - "30002:30002"
-      - "30003:30003"
-      - "30004:30004"
-      - "30005:30005"
-      - "30104:30104"
-    security_opt:
-      - no-new-privileges:true
+      - "30001:30001"  # Raw protocol output (TCP)
+      - "30002:30002"  # Raw protocol input/output (TCP)
+      - "30003:30003"  # SBS protocol compatible (TCP)
+      - "30004:30004"  # Beast protocol output (TCP)
+      - "30005:30005"  # Beast protocol input (TCP)
+      - "30104:30104"  # JSON protocol output (TCP)
+    network_mode: host
+    privileged: true
     cap_drop:
       - ALL
     cap_add:
       - SETUID
       - SETGID
       - CHOWN
-    read_only: false
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
+    tmpfs:
+      - /tmp
+      - /run
+    # Uncomment for production deployments with full read-only filesystem
+    # read_only: true
+
+volumes:
+  config:
+    driver: local
+  json:
+    driver: local

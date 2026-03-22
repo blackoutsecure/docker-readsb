@@ -5,18 +5,71 @@ on:
     types:
       - published
       - released
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Release version tag (e.g., v1.2.3)'
+        required: true
+        type: string
+      release_name:
+        description: 'Release name (optional)'
+        required: false
+        type: string
 
 permissions:
-  contents: read
+  contents: write
+  packages: read
 
 env:
   REGISTRY: docker.io
-  DOCKER_NAMESPACE: ${{ vars.DOCKER_NAMESPACE || secrets.DOCKER_USERNAME || 'blackoutsecure' }}
+  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME || 'blackoutsecure' }}
   IMAGE_NAME: readsb
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
+  READSB_REPO_BRANCH: dev
 
 jobs:
+  validate-release:
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.detect.outputs.release_tag }}
+      release_name: ${{ steps.detect.outputs.release_name }}
+    steps:
+      - name: Detect release source
+        id: detect
+        env:
+          EVENT_ACTION: ${{ github.event_name }}
+          DISPATCH_TAG: ${{ github.event.inputs.version_tag }}
+          DISPATCH_NAME: ${{ github.event.inputs.release_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+        run: |
+          set -euo pipefail
+
+          echo "ℹ Event: ${EVENT_ACTION}"
+
+          if [ "${EVENT_ACTION}" = "workflow_dispatch" ]; then
+            TAG="${DISPATCH_TAG}"
+            NAME="${DISPATCH_NAME:-Manual Release}"
+            echo "ℹ Manual dispatch detected"
+          else
+            TAG="${RELEASE_TAG}"
+            NAME="${RELEASE_NAME:-GitHub Release}"
+            echo "ℹ GitHub release detected"
+          fi
+
+          # Validate tag format
+          if ! [[ "${TAG}" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: Invalid version tag format: ${TAG}"
+            echo "Expected format: v1.2.3 or 1.2.3"
+            exit 1
+          fi
+
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_name=${NAME}" >> "$GITHUB_OUTPUT"
+          echo "✓ Release validation passed"
+
   release-metadata:
+    needs: validate-release
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.metadata.outputs.version }}
@@ -30,27 +83,33 @@ jobs:
       - name: Extract release metadata
         id: metadata
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.validate-release.outputs.release_name }}
         run: |
           set -euo pipefail
 
           # Extract version from tag (e.g., v1.2.3 -> 1.2.3)
           VERSION="${RELEASE_TAG#v}"
-          RELEASE_NAME="${{ github.event.release.name }}"
 
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "release_name=${RELEASE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "ℹ Release Version: ${VERSION}"
 
-          # Fetch upstream metadata
+          # Fetch upstream metadata with error handling
           TMPDIR="$(mktemp -d)"
           trap 'rm -rf "${TMPDIR}"' EXIT
-          git init "${TMPDIR}" >/dev/null
-          git -C "${TMPDIR}" remote add origin "${READSB_REPO_URL}.git"
-          git -C "${TMPDIR}" fetch --depth 1 origin dev >/dev/null
 
-          UPSTREAM_COMMIT="$(git -C "${TMPDIR}" rev-parse FETCH_HEAD | cut -c1-7)"
-          UPSTREAM_VERSION="$(git -C "${TMPDIR}" show FETCH_HEAD:version 2>/dev/null || git -C "${TMPDIR}" describe --tags --always 2>/dev/null || echo unknown)"
+          git init "${TMPDIR}" >/dev/null 2>&1
+          git -C "${TMPDIR}" remote add origin "${READSB_REPO_URL}.git" 2>&1
+          if git -C "${TMPDIR}" fetch --depth 1 origin "${READSB_REPO_BRANCH}" >/dev/null 2>&1; then
+            UPSTREAM_COMMIT="$(git -C "${TMPDIR}" rev-parse FETCH_HEAD 2>/dev/null | cut -c1-7)"
+            UPSTREAM_VERSION="$(git -C "${TMPDIR}" show FETCH_HEAD:version 2>/dev/null || git -C "${TMPDIR}" describe --tags --always 2>/dev/null || echo unknown)"
+            echo "ℹ Upstream readsb: ${UPSTREAM_VERSION} (${UPSTREAM_COMMIT})"
+          else
+            UPSTREAM_COMMIT="unknown"
+            UPSTREAM_VERSION="unknown"
+            echo "⚠ Warning: Could not fetch upstream metadata"
+          fi
 
           echo "upstream_commit=${UPSTREAM_COMMIT}" >> "$GITHUB_OUTPUT"
           echo "upstream_version=${UPSTREAM_VERSION}" >> "$GITHUB_OUTPUT"
@@ -58,6 +117,7 @@ jobs:
   tag-images:
     needs: release-metadata
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -65,23 +125,40 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Validate Docker credentials
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DOCKERHUB_USERNAME}" ] || [ -z "${DOCKERHUB_TOKEN}" ]; then
+            echo "ERROR: Docker Hub credentials not configured"
+            exit 1
+          fi
+
+          echo "ℹ Docker Hub credentials validated"
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Confirm Docker auth
+        run: docker info > /dev/null && echo "✓ Docker authentication confirmed"
 
       - name: Extract Docker metadata
         id: docker-meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.release-metadata.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release-metadata.outputs.version }}
             type=semver,pattern={{major}},value=${{ needs.release-metadata.outputs.version }}
-            type=ref,event=tag
-            type=sha
+            type=raw,value=latest
+            type=sha,prefix={{branch}}-
 
       - name: Build and push multi-arch release
         uses: docker/build-push-action@v6
@@ -97,11 +174,12 @@ jobs:
           labels: ${{ steps.docker-meta.outputs.labels }}
           build-args: |
             READSB_REPO_URL=${{ env.READSB_REPO_URL }}
-            READSB_REPO_BRANCH=dev
+            READSB_REPO_BRANCH=${{ env.READSB_REPO_BRANCH }}
 
   create-release-notes:
-    needs: release-metadata
+    needs: [validate-release, release-metadata]
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -110,10 +188,10 @@ jobs:
         id: notes
         env:
           RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.release_tag }}
           UPSTREAM_COMMIT: ${{ needs.release-metadata.outputs.upstream_commit }}
           UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
-          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
         run: |
           cat > /tmp/release_notes.md << 'EOF'
           ## Release ${{ env.RELEASE_VERSION }}
@@ -152,7 +230,7 @@ jobs:
           docker run -d \
             --name readsb \
             -e TZ=Etc/UTC \
-            -e READSB_ARGS="--net --device-type rtlsdr --gain auto" \
+            -e READSB_ARGS="--net --device-type rtlsdr" \
             -p 30001:30001 \
             -p 30002:30002 \
             -p 30003:30003 \
@@ -189,19 +267,22 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   notify-upstream:
-    needs: release-metadata
+    needs: [validate-release, release-metadata]
     runs-on: ubuntu-latest
-    if: ${{ github.event.action == 'published' }}
+    if: ${{ github.event_name == 'release' && github.event.action == 'published' }}
     steps:
       - name: Prepare upstream notification
         id: upstream-notice
         env:
           RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.release_tag }}
           UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
-          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
         run: |
-          cat > /tmp/upstream_notice.txt << 'EOF'
+          TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "${TMPDIR}"' EXIT
+
+          cat > "${TMPDIR}/upstream_notice.txt" << 'EOF'
           ## Unofficial Community Image Release: ${{ env.RELEASE_VERSION }}
 
           This is an automated notification about a new release of the unofficial Blackout Secure community container image for readsb.
@@ -224,7 +305,7 @@ jobs:
           ---
           *Generated by automated release workflow*
           EOF
-          cat /tmp/upstream_notice.txt
+          cat "${TMPDIR}/upstream_notice.txt"
 
       - name: Create GitHub Issue on upstream (optional, commented out)
         # This creates an issue on the upstream readsb project when a release is published.
@@ -269,28 +350,40 @@ jobs:
             // });
 
   summary:
-    needs: [release-metadata, tag-images, create-release-notes]
+    needs: [validate-release, release-metadata, tag-images]
     runs-on: ubuntu-latest
+    if: always()
     steps:
       - name: Release Summary
         env:
           RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
-          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKER_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.release_tag }}
+          EVENT_NAME: ${{ needs.validate-release.outputs.event_type }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
           UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
         run: |
           cat << EOF
-          ===== Release Complete =====
+          ===== Release Workflow Complete =====
 
+          Release Event:     ${{ env.EVENT_NAME }}
           Version:           ${{ env.RELEASE_VERSION }}
+          Release Tag:       ${{ env.RELEASE_TAG }}
           Docker Hub Image:  ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
+          Latest Tag:        ${{ env.DOCKER_IMAGE }}:latest
           Upstream readsb:   ${{ env.UPSTREAM_VERSION }}
           Repository:        ${{ github.repository }}
-          Released at:       $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+          Triggered by:      ${{ github.triggering_actor }}
+          Timestamp:         $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+          Available Tags:
+          - ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }} (specific version)
+          - ${{ env.DOCKER_IMAGE }}:latest (current stable)
+          - Architectures: amd64, arm64v8
 
           Next Steps:
-          1. Review release on GitHub: ${{ github.server_url }}/${{ github.repository }}/releases
+          1. Review release on GitHub: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.RELEASE_TAG }}
           2. Test image pull: docker pull ${{ env.DOCKER_IMAGE }}:${{ env.RELEASE_VERSION }}
-          3. (Optional) Create an issue on upstream readsb linking to this release
+          3. Monitor pull statistics and user issues
 
-          =============================
+          ===============================
           EOF

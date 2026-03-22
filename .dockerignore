@@ -1,22 +1,40 @@
+# CI/CD and VCS
 .github/
-README*.md
-docker-compose.example.yml
-debian/
-oneoff/
-flamegraph.md
-*.sh
-*.o
-.gitattributes
-.gitignore
 .git
 .git/**
+.gitignore
+.gitattributes
 .gitmodules
+
+# Documentation
+README*.md
+*.md
+
+# Configuration (non-build)
+readme-vars.yml
 .editorconfig
-.tmp-config/
-tmp/
+
+# Build and compose files
+docker-compose.yml
+docker-compose.*.yml
 balena-compose.yml
 balena.yml
-docker-compose.yml
-logo.png
-readme-vars.yml
-LICENSE
+
+# Development and examples
+debian/
+oneoff/
+local/
+.local/
+
+# Build artifacts
+*.o
+*.so
+*.a
+*.sh
+*.log
+.tmp-config/
+tmp/
+
+# Assets (include in image)
+!logo.png
+!LICENSE

@@ -17,83 +17,57 @@ common_param_env_vars_enabled: true
 param_container_name: "{{ project_name }}"
 param_usage_include_vols: true
 param_volumes:
-  - {vol_path: "/config", vol_host_path: "/path/to/readsb/config", desc: "Configuration directory for database and persistent data"}
-  - {vol_path: "/run/readsb", vol_host_path: "/path/to/readsb/json", desc: "JSON output directory (JSON protocol data feed)"}
+  - {vol_path: "/config", vol_host_path: "/path/to/readsb/config", desc: "Configuration and persistent data"}
+  - {vol_path: "/run/readsb", vol_host_path: "/path/to/readsb/json", desc: "JSON protocol output"}
 
 param_usage_include_net: false
 param_usage_include_env: true
 param_env_vars:
-  - {env_var: "TZ", env_value: "Etc/UTC", desc: "Specify a timezone to use, see the TZ database"}
-  - {env_var: "READSB_ARGS", env_value: "--net --device-type rtlsdr --gain auto", desc: "Additional arguments for readsb binary (optional)"}
+  - {env_var: "TZ", env_value: "Etc/UTC", desc: "Timezone (see TZ database)"}
+  - {env_var: "READSB_ARGS", env_value: "--net --device-type rtlsdr", desc: "Additional readsb arguments (auto-gain enabled by default for rtlsdr)"}
 
 # optional env variables
 opt_param_usage_include_env: true
 opt_param_env_vars:
-  - {env_var: "READSB_USER", env_value: "root", desc: "Default runtime user. Root is recommended for USB RTL-SDR compatibility."}
-  - {env_var: "PUID", env_value: "", desc: "Optional UserID when using non-root mode. If READSB_USER=abc and unset, defaults to 911."}
-  - {env_var: "PGID", env_value: "", desc: "Optional GroupID when using non-root mode. If READSB_USER=abc and unset, defaults to 911."}
-  - {env_var: "UMASK", env_value: "022", desc: "Set the umask for created files - see below for explanation"}
+  - {env_var: "READSB_USER", env_value: "root", desc: "Runtime user. Root is recommended for USB device access."}
+  - {env_var: "PUID", env_value: "", desc: "Optional: User ID for non-root mode (defaults to 911 if READSB_USER is set)"}
+  - {env_var: "PGID", env_value: "", desc: "Optional: Group ID for non-root mode (defaults to 911 if READSB_USER is set)"}
 
 # optional parameters
 optional_parameters: |
-  The container exposes multiple ports for different ADS-B protocol outputs. You can configure port mappings as needed:
+  The container exposes multiple ports for ADS-B protocol outputs:
 
   ```
-    -p 30001:30001  # Raw protocol output (TCP)
-    -p 30002:30002  # Raw protocol input/output (TCP)
-    -p 30003:30003  # SBS protocol compatible output (TCP)
-    -p 30004:30004  # Beast protocol output (TCP)
-    -p 30005:30005  # Beast protocol input (TCP)
-    -p 30104:30104  # JSON protocol output (TCP)
+    -p 30001:30001  # Raw protocol output
+    -p 30002:30002  # Raw protocol input
+    -p 30003:30003  # SBS protocol output
+    -p 30004:30004  # Beast protocol output
+    -p 30005:30005  # Beast protocol input
+    -p 30104:30104  # JSON protocol output
   ```
 
-  To use an RTL-SDR device, pass the device through to the container:
+  For RTL-SDR device access:
 
   ```
     --device=/dev/bus/usb:/dev/bus/usb
   ```
 
-  For more granular USB device access, you can pass specific RTL-SDR device:
-
-  ```
-    --device=/dev/ttyUSB0:/dev/ttyUSB0
-  ```
-
 # application setup block
 app_setup_block_enabled: true
 app_setup_block: |
-  By default, the container runs readsb with network mode enabled (`--net` flag) and attempts to auto-detect RTL-SDR devices.
+  By default, the container runs readsb with network mode enabled (`--net` flag) and auto-detects RTL-SDR devices.
 
-  **Build Source Defaults**: Image builds pull readsb from `https://github.com/wiedehopf/readsb` branch `dev` by default.
+  **JSON Output**: ADS-B data is output as JSON to `/run/readsb/` and updated frequently. This can be consumed by visualization tools or other services.
 
-  **Build Source Overrides**: You can override source at build time with Docker build args:
-  - `READSB_REPO_URL` (default: `https://github.com/wiedehopf/readsb`)
-  - `READSB_REPO_BRANCH` (default: `dev`)
+  **RTL-SDR Hardware**: Pass RTL-SDR USB device(s) to the container using `--device=/dev/bus/usb:/dev/bus/usb`.
 
-  **JSON Output**: The container outputs ADS-B data in JSON format to `/run/readsb/` directory. This data is updated frequently and can be consumed by other services or visualization tools like tar1090.
-
-  **RTL-SDR Hardware**: The readsb application supports RTL-SDR USB dongles. Pass your RTL-SDR device(s) through to the container using `--device` flags.
-
-  **Custom Arguments**: Use the `READSB_ARGS` environment variable to pass additional arguments to readsb. For example:
+  **Custom Arguments**: Use `READSB_ARGS` to pass additional readsb options:
   - `--gain 40` - Set manual gain instead of auto
-  - `--freq-correction 10` - Add frequency correction in PPM
-  - `--lon 0 --lat 0` - Set reference location
-  - `--write-json /run/readsb` - Specify JSON output directory (already configured)
+  - `--freq-correction 10` - Add frequency correction (PPM)
+  - `--lat 51.5 --lon -0.1` - Set location for range calculations
+  - `--max-range 350` - Set maximum detection range (km)
 
-  **READSB_ARGS Breakdown**
-
-  Defaults in this table mean behavior when that specific item is omitted from your `READSB_ARGS` value.
-
-  | Item | Required/Optional | Default Value | Description |
-  | --- | --- | --- | --- |
-  | `--net` | Optional (recommended) | Disabled | Enables network services (inputs/outputs) for readsb. |
-  | `--device-type rtlsdr` | Conditionally required (local RTL-SDR input) | No SDR device selected (none) | Selects RTL-SDR as the local receiver source. Remove for network-only operation. |
-  | `--gain auto` | Optional | Auto gain (for `--device-type rtlsdr`) | Uses automatic tuner gain selection for RTL-SDR. |
-  | `--write-json /run/readsb` | Optional (recommended) | `/run/readsb` | Writes JSON output files used by local web/consumer tools into `/run/readsb`. |
-  | `--write-json-every 1` | Optional | 1 second | JSON output interval in seconds. 1 provides near-real-time updates. |
-  | `--db-file /usr/local/share/tar1090/aircraft.csv.gz` | Optional (recommended) | `/usr/local/share/tar1090/aircraft.csv.gz` | Uses the bundled tar1090 aircraft database for enriched aircraft metadata. |
-
-  See [readsb documentation](https://github.com/wiedehopf/readsb) for all available options.
+  For all available options, see the [readsb documentation](https://github.com/wiedehopf/readsb).
 
 # hardware acceleration
 readme_hwaccel: false
@@ -101,23 +75,9 @@ readme_hwaccel: false
 # read-only support
 readonly_supported: true
 readonly_message: |
-  * Default deployment is read-write (`read_only: false`) for best USB compatibility.
-  * If enabling read-only mode, JSON and temporary output directories must be mounted to a host path, named volume, or tmpfs.
+  Read-only operation is supported. Mount JSON and temp directories to volumes or tmpfs.
 
 # non-root support
 nonroot_supported: true
 nonroot_message: |
-  * The container runs as `root` by default for USB access compatibility.
-  * Non-root operation is supported by overriding `READSB_USER`.
-  * If `READSB_USER=abc` and `PUID`/`PGID` are not provided, the runtime defaults to `911:911`.
-  * RTL-SDR device access may require additional permissions. Ensure the user/group has access to the USB device.
-
-# versioning
-image_version: "latest"
-common_version_env_vars:
-  - {env_var: "DOCKER_IMAGE_VERSION", shell_var: "{{ image_version }}"}
-
-# application changelog
-changelogs:
-  - {date: "22.03.26:", desc: "Initial release - based on LinuxServer.io standards with hardened defaults"}
-  - {date: "20.03.26:", desc: "Dockerfile optimization and multi-stage build implementation"}
+  Non-root operation is supported via `READSB_USER`. RTL-SDR access may require additional device permissions.
