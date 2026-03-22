@@ -32,7 +32,7 @@ concurrency:
 
 env:
   NO_CACHE: 'true'
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   BALENA_COMPOSE_FILE: balena-compose.yml
   BALENA_BLOCK_RELEASE: readsb
   SHOULD_PUBLISH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
