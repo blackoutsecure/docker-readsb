@@ -30,7 +30,7 @@ env:
   REGISTRY: docker.io
   BASE_IMAGE_REGISTRY: ghcr.io
   DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
-  IMAGE_NAME: ${{ github.event.repository.name }}
+  IMAGE_NAME: readsb
   REPO_URL: ${{ github.server_url }}/${{ github.repository }}
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
   READSB_REPO_BRANCH: dev

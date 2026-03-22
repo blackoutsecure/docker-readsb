@@ -9,7 +9,7 @@ on:
       - balena-compose.yml
       - .dockerignore
       - root/**
-      - .github/workflows/balena-publish.yml
+      - .github/workflows/balenablock-publish.yml
   push:
     branches:
       - main
@@ -18,7 +18,7 @@ on:
       - balena-compose.yml
       - .dockerignore
       - root/**
-      - .github/workflows/balena-publish.yml
+      - .github/workflows/balenablock-publish.yml
   workflow_dispatch:
 
 permissions:
@@ -31,24 +31,13 @@ concurrency:
 env:
   NO_CACHE: 'true'
   BALENA_COMPOSE_FILE: balena-compose.yml
-  BALENA_BLOCK_RELEASE: ${{ github.event.repository.name }}
-  # Configure the following environment variables as secrets or repository variables:
-  # BALENA_FLEET_RELEASE: your-balena-org/your-fleet-slug
-  BALENA_FLEET_RELEASE: ${{ vars.BALENA_FLEET_RELEASE || 'org/fleet-placeholder' }}
+  BALENA_BLOCK_RELEASE: readsb
   SHOULD_PUBLISH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
 
 jobs:
   balena:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target_name: block
-            target_fleet: ${{ github.event.repository.name }}
-          - target_name: fleet
-            target_fleet: ${{ vars.BALENA_FLEET_RELEASE || 'org/fleet-placeholder' }}
 
     steps:
       - name: Checkout
@@ -58,7 +47,7 @@ jobs:
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         env:
           BALENA_API_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
-          TARGET_FLEET: ${{ matrix.target_fleet }}
+          TARGET_FLEET: ${{ env.BALENA_BLOCK_RELEASE }}
           COMPOSE_FILE: ${{ env.BALENA_COMPOSE_FILE }}
         run: |
           set -euo pipefail
@@ -69,12 +58,12 @@ jobs:
           fi
 
           if [ -z "${TARGET_FLEET}" ]; then
-            echo "${{ matrix.target_name }} target fleet is not set"
+            echo "Block target fleet is not set"
             exit 1
           fi
 
           if [ "${TARGET_FLEET}" = "false" ]; then
-            echo "${{ matrix.target_name }} target fleet is set to false. Configure a valid fleet slug."
+            echo "Block target fleet is set to false. Configure a valid fleet slug."
             exit 1
           fi
 
@@ -98,10 +87,10 @@ jobs:
           BALENA_API_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
         run: balena login --token "${BALENA_API_TOKEN}"
 
-      - name: Deploy to Balena ${{ matrix.target_name }}
+      - name: Deploy to Balena block
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         run: |
           set -euo pipefail
           cp "${{ env.BALENA_COMPOSE_FILE }}" docker-compose.yml
-          echo "Deploying to ${{ matrix.target_name }}: ${{ matrix.target_fleet }}"
-          balena push "${{ matrix.target_fleet }}" --source .
+          echo "Deploying to block: ${{ env.BALENA_BLOCK_RELEASE }}"
+          balena push "${{ env.BALENA_BLOCK_RELEASE }}" --source .
