@@ -81,6 +81,13 @@ jobs:
           sed -i "s/^version: .*/version: ${VERSION}/" balena.yml
           grep "^version:" balena.yml
 
+      - name: Prepare Balena composition
+        run: |
+          set -euo pipefail
+          cp balena-compose.yml docker-compose.yml
+          echo "Using balena-compose.yml for block deployment"
+          grep "^version:" docker-compose.yml
+
       - name: Deploy to Balena block
         uses: balena-io/deploy-to-balena-action@master
         with:
