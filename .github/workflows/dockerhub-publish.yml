@@ -1,0 +1,278 @@
+name: Docker Build and Publish
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - root/**
+      - .github/workflows/dockerhub-publish.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - root/**
+      - .github/workflows/dockerhub-publish.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: docker.io
+  BASE_IMAGE_REGISTRY: ghcr.io
+  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+  IMAGE_NAME: ${{ github.event.repository.name }}
+  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+  READSB_REPO_URL: https://github.com/wiedehopf/readsb
+  READSB_REPO_BRANCH: dev
+  NO_CACHE: 'true'
+  SHOULD_PUBLISH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
+
+jobs:
+  docker:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: ubuntu-latest-arm64
+            platform: linux/arm64
+    env: {}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate required secrets and namespace
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_NAMESPACE: ${{ env.DOCKERHUB_NAMESPACE }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DOCKERHUB_USERNAME}" ]; then
+            echo "DOCKERHUB_USERNAME secret is not set"
+            exit 1
+          fi
+
+          if [ -z "${DOCKERHUB_TOKEN}" ]; then
+            echo "DOCKERHUB_TOKEN secret is not set"
+            exit 1
+          fi
+
+          if [ -z "${DOCKERHUB_NAMESPACE}" ]; then
+            echo "DOCKERHUB_NAMESPACE repo variable is not set"
+            exit 1
+          fi
+
+          if [[ "${DOCKERHUB_USERNAME}" =~ [[:space:]] ]]; then
+            echo "DOCKERHUB_USERNAME must not contain spaces"
+            exit 1
+          fi
+
+          if [[ "${DOCKERHUB_NAMESPACE}" =~ [[:space:]] ]]; then
+            echo "DOCKERHUB_NAMESPACE must not contain spaces (use Docker Hub org/user slug)"
+            exit 1
+          fi
+
+          if ! [[ "${DOCKERHUB_NAMESPACE}" =~ ^[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "DOCKERHUB_NAMESPACE has invalid format. Use lowercase Docker Hub namespace slug only."
+            exit 1
+          fi
+
+      - name: Docker Hub login
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Confirm Docker auth is active
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        run: docker info > /dev/null
+
+      - name: Resolve image tags
+        id: tags
+        run: |
+          set -euo pipefail
+
+          ARCH="${{ matrix.arch }}"
+          SHORT_SHA="${GITHUB_SHA::12}"
+          IMAGE_REF="${REGISTRY}/${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
+          VERSION_LABEL="${SHORT_SHA}"
+
+          {
+            echo "docker_tags<<EOF"
+            echo "${IMAGE_REF}:latest-${ARCH}"
+            echo "${IMAGE_REF}:sha-${SHORT_SHA}-${ARCH}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "version_label=${VERSION_LABEL}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve upstream readsb metadata
+        id: upstream
+        run: |
+          set -euo pipefail
+
+          UPSTREAM_REPO_URL="${READSB_REPO_URL}.git"
+          UPSTREAM_BRANCH="${READSB_REPO_BRANCH}"
+
+          TMPDIR="$(mktemp -d)"
+
+          git init "${TMPDIR}" >/dev/null
+          git -C "${TMPDIR}" remote add origin "${UPSTREAM_REPO_URL}"
+          git -C "${TMPDIR}" fetch --depth 1 origin "${UPSTREAM_BRANCH}" >/dev/null
+
+          VCS_REF="$(git -C "${TMPDIR}" rev-parse FETCH_HEAD)"
+          BUILD_DATE="$(git -C "${TMPDIR}" log -1 --format=%cI FETCH_HEAD)"
+          VERSION="$(git -C "${TMPDIR}" show FETCH_HEAD:version 2>/dev/null || git -C "${TMPDIR}" describe --tags --always --dirty FETCH_HEAD 2>/dev/null || echo unknown)"
+
+          {
+            echo "vcs_ref=${VCS_REF}"
+            echo "build_date=${BUILD_DATE}"
+            echo "version=${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build only (PR/check mode)
+        if: ${{ env.SHOULD_PUBLISH != 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          platforms: ${{ matrix.platform }}
+          no-cache: ${{ env.NO_CACHE == 'true' }}
+          pull: true
+          provenance: false
+          build-args: |
+            BASE_IMAGE_REGISTRY=${{ env.BASE_IMAGE_REGISTRY }}
+            READSB_REPO_URL=${{ env.READSB_REPO_URL }}
+            READSB_REPO_BRANCH=${{ env.READSB_REPO_BRANCH }}
+            VCS_URL=${{ env.REPO_URL }}
+          labels: |
+            org.opencontainers.image.created=${{ steps.upstream.outputs.build_date }}
+            org.opencontainers.image.version=${{ steps.upstream.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.upstream.outputs.vcs_ref }}
+            org.opencontainers.image.source=${{ env.REPO_URL }}
+            org.opencontainers.image.url=${{ env.REPO_URL }}
+            build_version=Linuxserver.io version:- ${{ steps.upstream.outputs.version }} Build-date:- ${{ steps.upstream.outputs.build_date }}
+
+      - name: Build and publish (main/manual publish mode)
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: ${{ matrix.platform }}
+          no-cache: ${{ env.NO_CACHE == 'true' }}
+          pull: true
+          provenance: false
+          build-args: |
+            BASE_IMAGE_REGISTRY=${{ env.BASE_IMAGE_REGISTRY }}
+            READSB_REPO_URL=${{ env.READSB_REPO_URL }}
+            READSB_REPO_BRANCH=${{ env.READSB_REPO_BRANCH }}
+            VCS_URL=${{ env.REPO_URL }}
+          labels: |
+            org.opencontainers.image.created=${{ steps.upstream.outputs.build_date }}
+            org.opencontainers.image.version=${{ steps.upstream.outputs.version }}
+            org.opencontainers.image.revision=${{ steps.upstream.outputs.vcs_ref }}
+            org.opencontainers.image.source=${{ env.REPO_URL }}
+            org.opencontainers.image.url=${{ env.REPO_URL }}
+            build_version=Linuxserver.io version:- ${{ steps.upstream.outputs.version }} Build-date:- ${{ steps.upstream.outputs.build_date }}
+          tags: ${{ steps.tags.outputs.docker_tags }}
+
+  manifest:
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      REGISTRY: docker.io
+      DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+      IMAGE_NAME: ${{ github.event.repository.name }}
+    steps:
+      - name: Docker Hub login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create and push multi-arch manifests
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          SHORT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          SHORT_SHA="${SHORT_SHA::12}"
+
+          merge_manifest() {
+            local target="$1"
+            shift
+
+            local expected_count="$#"
+            local source
+            local available_sources=()
+            local target_exists="false"
+            local final_sources=()
+
+            if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
+              target_exists="true"
+            fi
+
+            for source in "$@"; do
+              if docker buildx imagetools inspect "${source}" >/dev/null 2>&1; then
+                available_sources+=("${source}")
+              else
+                echo "Skipping missing source: ${source}"
+              fi
+            done
+
+            if [ "${#available_sources[@]}" -eq 0 ] && [ "${target_exists}" != "true" ]; then
+              echo "No sources available for ${target}; skipping"
+              return 0
+            fi
+
+            if [ "${#available_sources[@]}" -eq "${expected_count}" ]; then
+              final_sources=("${available_sources[@]}")
+            else
+              if [ "${target_exists}" = "true" ]; then
+                final_sources=("${target}" "${available_sources[@]}")
+              else
+                final_sources=("${available_sources[@]}")
+              fi
+            fi
+
+            echo "Updating ${target} using sources: ${final_sources[*]}"
+            docker buildx imagetools create --tag "${target}" "${final_sources[@]}"
+            docker buildx imagetools inspect "${target}"
+          }
+
+          merge_manifest "${IMAGE_REF}:latest" \
+            "${IMAGE_REF}:latest-amd64" \
+            "${IMAGE_REF}:latest-arm64"
+
+          merge_manifest "${IMAGE_REF}:sha-${SHORT_SHA}" \
+            "${IMAGE_REF}:sha-${SHORT_SHA}-amd64" \
+            "${IMAGE_REF}:sha-${SHORT_SHA}-arm64"

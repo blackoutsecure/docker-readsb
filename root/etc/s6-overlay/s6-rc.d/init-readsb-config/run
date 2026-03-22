@@ -1,0 +1,28 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readsb_user=${READSB_USER:-root}
+readsb_run_dir=${READSB_RUN_DIR:-/run/readsb}
+readsb_config_dir=/config/readsb
+readsb_globe_history_dir=${readsb_config_dir}/globe_history
+
+if [[ "${readsb_user}" != "root" ]]; then
+    if [[ "${readsb_user}" == "abc" && -z ${PUID:-} ]]; then
+        export PUID=911
+    fi
+    if [[ "${readsb_user}" == "abc" && -z ${PGID:-} ]]; then
+        export PGID=911
+    fi
+fi
+
+mkdir -p \
+    "${readsb_config_dir}" \
+    "${readsb_globe_history_dir}" \
+    "${readsb_run_dir}"
+
+if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+    lsiown -R "${readsb_user}:${readsb_user}" \
+        "${readsb_config_dir}" \
+        "${readsb_run_dir}"
+fi

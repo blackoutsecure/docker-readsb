@@ -1,0 +1,28 @@
+*.o
+.*.swp
+*~
+*.rej
+*.orig
+nbproject/*
+oneoff/convert_benchmark
+oneoff/decode_comm_b
+readsb
+viewadsb
+.version
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.sublime-*
+
+# Build artifacts
+.tmp-config/
+tmp/
+build/
+dist/

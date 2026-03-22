@@ -1,0 +1,31 @@
+services:
+  readsb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: docker.io/blackoutsecure/docker-readsb:latest
+    container_name: readsb
+    environment:
+      - TZ=Etc/UTC
+      - READSB_ARGS=--net --device-type rtlsdr --gain auto
+    volumes:
+      - ./config:/config
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    ports:
+      - "30001:30001"
+      - "30002:30002"
+      - "30003:30003"
+      - "30004:30004"
+      - "30005:30005"
+      - "30104:30104"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+    read_only: false
+    restart: unless-stopped

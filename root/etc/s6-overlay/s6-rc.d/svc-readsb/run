@@ -1,0 +1,122 @@
+#!/bin/bash
+
+set -euo pipefail
+
+readsb_user=${READSB_USER:-root}
+readsb_run_dir=${READSB_RUN_DIR:-/run/readsb}
+tar1090_db_path=${TAR1090_DB_PATH:-/usr/local/share/tar1090/aircraft.csv.gz}
+build_metadata_path=/usr/local/share/readsb/build-metadata.env
+
+# Import build metadata captured from upstream readsb so these values are
+# available to the service process in production.
+if [[ -r "${build_metadata_path}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "${build_metadata_path}"
+    set +a
+fi
+
+if [[ "${readsb_user}" != "root" ]]; then
+    if [[ "${readsb_user}" == "abc" && -z ${PUID:-} ]]; then
+        export PUID=911
+    fi
+    if [[ "${readsb_user}" == "abc" && -z ${PGID:-} ]]; then
+        export PGID=911
+    fi
+fi
+
+timestamp_utc() {
+    date -u '+%Y-%m-%d %H:%M:%S UTC'
+}
+
+print_kv() {
+    local key=$1
+    local value=$2
+    printf '[%s] %-15s %s\n' "$(timestamp_utc)" "${key}:" "${value}"
+}
+
+# Create runtime directory at service start in case one-shot init did not run yet.
+if ! mkdir -p "${readsb_run_dir}"; then
+    echo "ERROR: unable to create READSB_RUN_DIR (${readsb_run_dir})." >&2
+    echo "If running as non-root, ensure /run tmpfs uses matching uid/gid." >&2
+    exit 1
+fi
+
+if [[ -n ${READSB_ARGS:-} ]]; then
+    read -r -a readsb_args <<< "${READSB_ARGS}"
+else
+    readsb_args=(
+        --net
+        --device-type rtlsdr
+        --gain auto
+        --write-json "${readsb_run_dir}"
+        --write-json-every 1
+        --db-file "${tar1090_db_path}"
+    )
+fi
+
+has_readsb_opt() {
+    local opt=$1
+    local token
+
+    for token in "${readsb_args[@]}"; do
+        if [[ ${token} == "${opt}" || ${token} == "${opt}="* ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+# Keep key file-output defaults even when READSB_ARGS is user-specified.
+if ! has_readsb_opt "--write-json"; then
+    readsb_args+=(--write-json "${readsb_run_dir}")
+fi
+
+if ! has_readsb_opt "--db-file"; then
+    readsb_args+=(--db-file "${tar1090_db_path}")
+fi
+
+readsb_args_rendered=$(printf '%q ' "${readsb_args[@]}")
+readsb_args_rendered=${readsb_args_rendered% }
+
+build_version=${VERSION:-unknown}
+if [[ -r /build_version ]]; then
+    build_version=$(< /build_version)
+fi
+
+echo "[$(timestamp_utc)] readsb container startup configuration"
+print_kv "build_version" "${build_version}"
+print_kv "VERSION" "${VERSION:-unknown}"
+print_kv "BUILD_DATE" "${BUILD_DATE:-unknown}"
+print_kv "VCS_REF" "${VCS_REF:-unknown}"
+print_kv "PUID" "${PUID:-unset}"
+print_kv "PGID" "${PGID:-unset}"
+print_kv "UMASK" "${UMASK:-unset}"
+print_kv "TZ" "${TZ:-unset}"
+print_kv "READSB_USER" "${readsb_user}"
+print_kv "effective_PUID" "${PUID:-unset}"
+print_kv "effective_PGID" "${PGID:-unset}"
+print_kv "READSB_RUN_DIR" "${readsb_run_dir}"
+print_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
+print_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
+print_kv "effective_ARGS" "${readsb_args_rendered}"
+
+if [[ ! -e /dev/bus/usb ]]; then
+    echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input." >&2
+elif [[ ! -r /dev/bus/usb ]]; then
+    echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is not readable by the container. Check device mapping and runtime permissions." >&2
+fi
+
+if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+    lsiown -R "${readsb_user}:${readsb_user}" "${readsb_run_dir}"
+    exec s6-setuidgid "${readsb_user}" /usr/local/bin/readsb "${readsb_args[@]}"
+fi
+
+if [[ ! -w ${readsb_run_dir} ]]; then
+    echo "ERROR: READSB_RUN_DIR (${readsb_run_dir}) is not writable by current user." >&2
+    echo "When forcing user mode, set /run tmpfs uid/gid to match that user." >&2
+    exit 1
+fi
+
+exec /usr/local/bin/readsb "${readsb_args[@]}"
