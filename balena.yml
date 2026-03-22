@@ -15,9 +15,6 @@ assets:
     data:
       url: 'https://raw.githubusercontent.com/blackoutsecure/docker-readsb/main/logo.png'
 data:
-  applicationEnvironmentVariables:
-    - TZ: Etc/UTC
-    - READSB_ARGS: --net --device-type rtlsdr
   defaultDeviceType: raspberrypi3
   supportedDeviceTypes:
     - raspberrypi3
