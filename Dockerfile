@@ -20,8 +20,7 @@ ARG READSB_REPO_URL
 ARG READSB_REPO_BRANCH
 ARG VCS_URL
 
-RUN --mount=type=cache,target=/var/cache/apk \
-    apk add --no-cache \
+RUN apk add --no-cache \
         build-base \
         ca-certificates \
         git \
@@ -83,8 +82,7 @@ ENV HOME="/config" \
     TAR1090_DB_PATH="${TAR1090_DB_PATH}" \
     READSB_ARGS="--net --device-type rtlsdr --gain auto --write-json ${READSB_RUN_DIR} --write-json-every 1 --db-file ${TAR1090_DB_PATH}"
 
-RUN --mount=type=cache,target=/var/cache/apk \
-    apk add --no-cache \
+RUN apk add --no-cache \
         librtlsdr \
         ncurses-libs \
         jemalloc \
