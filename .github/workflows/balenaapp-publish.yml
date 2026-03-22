@@ -7,18 +7,20 @@ on:
     paths:
       - Dockerfile
       - balena-compose.yml
+      - balena.yml
       - .dockerignore
       - root/**
-      - .github/workflows/balenablock-publish.yml
+      - .github/workflows/balenaapp-publish.yml
   push:
     branches:
       - main
     paths:
       - Dockerfile
       - balena-compose.yml
+      - balena.yml
       - .dockerignore
       - root/**
-      - .github/workflows/balenablock-publish.yml
+      - .github/workflows/balenaapp-publish.yml
   workflow_dispatch:
 
 permissions:
@@ -30,8 +32,9 @@ concurrency:
 
 env:
   NO_CACHE: 'true'
+  NODE_VERSION: '22'
   BALENA_COMPOSE_FILE: balena-compose.yml
-  BALENA_BLOCK_RELEASE: readsb
+  BALENA_APP_SLUG: ${{ vars.BALENA_APP_SLUG || 'readsb' }}
   SHOULD_PUBLISH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
   READSB_REPO_BRANCH: dev
@@ -45,11 +48,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Balena compose file
+        run: |
+          set -euo pipefail
+          docker compose -f "${{ env.BALENA_COMPOSE_FILE }}" config -q
+
+      - name: Build image for CI validation
+        run: |
+          set -euo pipefail
+          docker build \
+            --file Dockerfile \
+            --tag "readsb-ci:${GITHUB_SHA}" \
+            .
+
       - name: Validate required publish configuration
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         env:
           BALENA_API_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
-          TARGET_FLEET: ${{ env.BALENA_BLOCK_RELEASE }}
+          TARGET_APP: ${{ env.BALENA_APP_SLUG }}
           COMPOSE_FILE: ${{ env.BALENA_COMPOSE_FILE }}
         run: |
           set -euo pipefail
@@ -59,13 +75,13 @@ jobs:
             exit 1
           fi
 
-          if [ -z "${TARGET_FLEET}" ]; then
-            echo "Block target fleet is not set"
+          if [ -z "${TARGET_APP}" ]; then
+            echo "App target slug is not set"
             exit 1
           fi
 
-          if [ "${TARGET_FLEET}" = "false" ]; then
-            echo "Block target fleet is set to false. Configure a valid fleet slug."
+          if [ "${TARGET_APP}" = "false" ]; then
+            echo "App target slug is set to false. Configure a valid app slug."
             exit 1
           fi
 
@@ -78,7 +94,7 @@ jobs:
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: ${{ env.NODE_VERSION }}
       - name: Install Balena CLI
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         run: npm install --global --no-progress --silent balena-cli@latest
@@ -98,6 +114,7 @@ jobs:
           UPSTREAM_BRANCH="${READSB_REPO_BRANCH}"
 
           TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "${TMPDIR}"' EXIT
 
           git init "${TMPDIR}" >/dev/null
           git -C "${TMPDIR}" remote add origin "${UPSTREAM_REPO_URL}"
@@ -122,13 +139,13 @@ jobs:
           sed -i "s/^version: .*/version: ${VERSION}/" balena.yml
           grep "^version:" balena.yml
 
-      - name: Deploy to Balena block
+      - name: Deploy to Balena app
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         run: |
           set -euo pipefail
           cp "${{ env.BALENA_COMPOSE_FILE }}" docker-compose.yml
-          echo "Deploying to block: ${{ env.BALENA_BLOCK_RELEASE }}"
+          echo "Deploying to app: ${{ env.BALENA_APP_SLUG }}"
           echo "Version: ${{ steps.upstream.outputs.version }}"
           echo "Build date: ${{ steps.upstream.outputs.build_date }}"
           echo "VCS ref: ${{ steps.upstream.outputs.vcs_ref }}"
-          balena push "${{ env.BALENA_BLOCK_RELEASE }}" --source .
+          balena push "${{ env.BALENA_APP_SLUG }}" --source .

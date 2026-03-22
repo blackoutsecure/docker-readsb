@@ -44,6 +44,7 @@ jobs:
 
           # Fetch upstream metadata
           TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "${TMPDIR}"' EXIT
           git init "${TMPDIR}" >/dev/null
           git -C "${TMPDIR}" remote add origin "${READSB_REPO_URL}.git"
           git -C "${TMPDIR}" fetch --depth 1 origin dev >/dev/null

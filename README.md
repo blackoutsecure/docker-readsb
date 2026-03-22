@@ -12,7 +12,7 @@ This repository is not an official LinuxServer.io image release.
 
 Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app).
 
-[![balena deploy button](https://www.balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/blackoutsecure/docker-readsb)
+[![balena deploy button](https://www.balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/blackoutsecure/docker-readsb&configUrl=https://raw.githubusercontent.com/blackoutsecure/docker-readsb/main/balena.yml)
 
 ---
 
@@ -206,7 +206,7 @@ docker run -d \
 This image can be deployed to Balena-powered IoT devices. Use the included `balena-compose.yml` file for deployment:
 
 ```bash
-balena push <your-fleet-name>
+balena push <your-app-slug>
 ```
 
 The balena-compose configuration includes:
@@ -224,57 +224,36 @@ Key Balena features enabled:
 
 For more information on Balena deployment, see the [Balena documentation](https://docs.balena.io/).
 
-### Balena Block Publication
+### Balena App Publication
 
-This project is registered as a public Balena Block and is available on [balenaHub](https://hub.balena.io/blocks).
+This project is published as a public Balena App and can be deployed via the included deploy button in this repository.
 
-#### For Block Maintainers
+#### For App Maintainers
 
-To release new versions of this block:
+To release new versions of this app:
 
 ```bash
 # Push a new release
-balena push <block-name>
+balena push <your-app-slug>
 ```
 
 Release management is handled via the Balena Dashboard:
 
 - New releases are tracked and can be set as default
 - Each release can be pinned or set to track latest
-- Manage block visibility in Settings (toggle to make public)
+- Manage app visibility in Settings (toggle to make public)
 
-#### For Block Users
+#### For App Users
 
-To use this block in your Balena fleet, add it to your `docker-compose.yml`:
+Deploy the app using the `Deploy with balena` button in this repository, or push directly from a local clone:
 
-```yaml
-services:
-  readsb:
-    image: bh.cr/balenablocks/readsb-aarch64
-    privileged: true
-    network_mode: host
-    environment:
-      - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr --gain auto
-    volumes:
-      - config:/config
-    devices:
-      - /dev/bus/usb:/dev/bus/usb
-    ports:
-      - "30001:30001"
-      - "30002:30002"
-      - "30003:30003"
-      - "30004:30004"
-      - "30005:30005"
-      - "30104:30104"
-    restart: unless-stopped
+```bash
+balena push <your-app-slug>
 ```
 
-Available image references:
+App source repository:
 
-- `bh.cr/balenablocks/readsb-aarch64` - Latest aarch64 (ARM 64-bit)
-- `bh.cr/balenablocks/readsb-aarch64:1.0.0` - Specific version (aarch64)
-- `bh.cr/balenablocks/readsb-amd64` - Latest amd64 (x86-64)
+- `https://github.com/blackoutsecure/docker-readsb`
 
 ---
 

@@ -119,6 +119,7 @@ jobs:
           UPSTREAM_BRANCH="${READSB_REPO_BRANCH}"
 
           TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "${TMPDIR}"' EXIT
 
           git init "${TMPDIR}" >/dev/null
           git -C "${TMPDIR}" remote add origin "${UPSTREAM_REPO_URL}"
@@ -235,6 +236,7 @@ jobs:
           UPSTREAM_BRANCH="${READSB_REPO_BRANCH}"
 
           TMPDIR="$(mktemp -d)"
+          trap 'rm -rf "${TMPDIR}"' EXIT
 
           git init "${TMPDIR}" >/dev/null
           git -C "${TMPDIR}" remote add origin "${UPSTREAM_REPO_URL}"

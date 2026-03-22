@@ -8,5 +8,15 @@ flamegraph.md
 *.o
 .gitattributes
 .gitignore
+.git
+.git/**
+.gitmodules
+.editorconfig
 .tmp-config/
 tmp/
+balena-compose.yml
+balena.yml
+docker-compose.yml
+logo.png
+readme-vars.yml
+LICENSE
