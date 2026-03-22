@@ -210,7 +210,7 @@ jobs:
     env:
       REGISTRY: docker.io
       DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
-      IMAGE_NAME: ${{ github.event.repository.name }}
+      IMAGE_NAME: readsb
     steps:
       - name: Docker Hub login
         uses: docker/login-action@v3
