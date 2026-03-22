@@ -102,7 +102,7 @@ jobs:
       - name: Prepare Balena composition
         run: |
           set -euo pipefail
-          cp balena-compose.yml docker-compose.yml
+          cp balena.yml balena-compose.yml docker-compose.yml
           echo "Using balena-compose.yml for block deployment"
           grep "^version:" docker-compose.yml
 
