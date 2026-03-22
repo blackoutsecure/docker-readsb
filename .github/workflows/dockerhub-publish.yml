@@ -134,26 +134,6 @@ jobs:
             echo "version=${VERSION}"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Resolve image tags
-        id: tags
-        run: |
-          set -euo pipefail
-
-          ARCH="${{ matrix.arch }}"
-          SHORT_SHA="${GITHUB_SHA::12}"
-          IMAGE_REF="${REGISTRY}/${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
-
-          {
-            echo "docker_tags<<EOF"
-            echo "${IMAGE_REF}:latest-${ARCH}"
-            echo "${IMAGE_REF}:${{ steps.upstream.outputs.version }}-${ARCH}"
-            echo "${IMAGE_REF}:${{ steps.upstream.outputs.version }}-${SHORT_SHA}-${ARCH}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "arch=${ARCH}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
-
       - name: Build only (PR/check mode)
         if: ${{ env.SHOULD_PUBLISH != 'true' }}
         uses: docker/build-push-action@v6
@@ -178,17 +158,18 @@ jobs:
             org.opencontainers.image.url=${{ env.REPO_URL }}
             build_version=Linuxserver.io version:- ${{ steps.upstream.outputs.version }} Build-date:- ${{ steps.upstream.outputs.build_date }}
 
-      - name: Build and publish (main/manual publish mode)
+      - name: Build and publish by digest (main/manual publish mode)
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: true
           platforms: ${{ matrix.platform }}
           no-cache: ${{ env.NO_CACHE == 'true' }}
           pull: true
           provenance: false
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
             BASE_IMAGE_REGISTRY=${{ env.BASE_IMAGE_REGISTRY }}
             READSB_REPO_URL=${{ env.READSB_REPO_URL }}
@@ -201,7 +182,23 @@ jobs:
             org.opencontainers.image.source=${{ env.REPO_URL }}
             org.opencontainers.image.url=${{ env.REPO_URL }}
             build_version=Linuxserver.io version:- ${{ steps.upstream.outputs.version }} Build-date:- ${{ steps.upstream.outputs.build_date }}
-          tags: ${{ steps.tags.outputs.docker_tags }}
+
+      - name: Export digest
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          DIGEST="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest artifact
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
 
   manifest:
     if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
@@ -218,6 +215,13 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
 
       - name: Resolve upstream readsb metadata
         id: upstream
@@ -249,82 +253,29 @@ jobs:
       - name: Create and push multi-arch manifests
         env:
           IMAGE_REF: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
-          SHORT_SHA: ${{ github.sha }}
           VERSION: ${{ steps.upstream.outputs.version }}
           SHORT_VCS_REF: ${{ steps.upstream.outputs.short_vcs_ref }}
         run: |
           set -euo pipefail
 
-          SHORT_SHA="${SHORT_SHA::12}"
+          mapfile -t DIGESTS < <(find /tmp/digests -type f -printf '%f\n' | sort)
 
-          merge_manifest() {
-            local target="$1"
-            shift
+          if [ "${#DIGESTS[@]}" -eq 0 ]; then
+            echo "No digests found to assemble multi-arch manifest"
+            exit 1
+          fi
 
-            local expected_count="$#"
-            local source
-            local available_sources=()
-            local target_exists="false"
-            local final_sources=()
+          SOURCES=()
+          for digest in "${DIGESTS[@]}"; do
+            SOURCES+=("${IMAGE_REF}@sha256:${digest}")
+          done
 
-            if docker buildx imagetools inspect "${target}" >/dev/null 2>&1; then
-              target_exists="true"
-            fi
+          docker buildx imagetools create \
+            --tag "${IMAGE_REF}:latest" \
+            --tag "${IMAGE_REF}:${VERSION}" \
+            --tag "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}" \
+            "${SOURCES[@]}"
 
-            for source in "$@"; do
-              if docker buildx imagetools inspect "${source}" >/dev/null 2>&1; then
-                available_sources+=("${source}")
-              else
-                echo "Skipping missing source: ${source}"
-              fi
-            done
-
-            if [ "${#available_sources[@]}" -eq 0 ] && [ "${target_exists}" != "true" ]; then
-              echo "No sources available for ${target}; skipping"
-              return 0
-            fi
-
-            if [ "${#available_sources[@]}" -eq "${expected_count}" ]; then
-              final_sources=("${available_sources[@]}")
-            else
-              if [ "${target_exists}" = "true" ]; then
-                final_sources=("${target}" "${available_sources[@]}")
-              else
-                final_sources=("${available_sources[@]}")
-              fi
-            fi
-
-            echo "Updating ${target} using sources: ${final_sources[*]}"
-            docker buildx imagetools create --tag "${target}" "${final_sources[@]}"
-            docker buildx imagetools inspect "${target}"
-          }
-
-          merge_manifest "${IMAGE_REF}:latest" \
-            "${IMAGE_REF}:latest-amd64" \
-            "${IMAGE_REF}:latest-arm64"
-
-          merge_manifest "${IMAGE_REF}:${VERSION}" \
-            "${IMAGE_REF}:${VERSION}-amd64" \
-            "${IMAGE_REF}:${VERSION}-arm64"
-
-          merge_manifest "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}" \
-            "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}-amd64" \
-            "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}-arm64"
-
-      - name: Clean up arch-specific tags from DockerHub
-        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
-        env:
-          REGISTRY_URL: https://hub.docker.com/v2
-          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
-          VERSION: ${{ steps.upstream.outputs.version }}
-          SHORT_VCS_REF: ${{ steps.upstream.outputs.short_vcs_ref }}
-        run: |
-          set -euo pipefail
-
-          # DockerHub API does not support deleting specific tags via API
-          # They will remain as untagged images and get garbage collected
-          echo "Note: Arch-specific image tags have been built for manifest creation"
-          echo "Only the unified manifest tags are intended for public use:"
-          echo "  - ${IMAGE_REF}:latest"
-          echo "  - ${IMAGE_REF}:${VERSION}"
-          echo "  - ${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}"
+          docker buildx imagetools inspect "${IMAGE_REF}:latest"
+          docker buildx imagetools inspect "${IMAGE_REF}:${VERSION}"
+          docker buildx imagetools inspect "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}"
