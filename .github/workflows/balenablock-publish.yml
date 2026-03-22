@@ -32,6 +32,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  BALENA_NAMESPACE: ${{ vars.BALENA_NAMESPACE || secrets.BALENA_USERNAME }}
   BALENA_BLOCK_RELEASE: readsb
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
   READSB_REPO_BRANCH: dev
@@ -84,14 +85,14 @@ jobs:
         uses: balena-io/deploy-to-balena-action@master
         with:
           balena_token: ${{ secrets.BALENA_API_TOKEN }}
-          fleet: ${{ env.BALENA_BLOCK_RELEASE }}
+          fleet: ${{ env.BALENA_NAMESPACE }}/${{ env.BALENA_BLOCK_RELEASE }}
           layer_cache: true
           debug: false
           source: .
 
       - name: Log deployment info
         run: |
-          echo "Deployed to block: ${{ env.BALENA_BLOCK_RELEASE }}"
+          echo "Deployed to fleet: ${{ env.BALENA_NAMESPACE }}/${{ env.BALENA_BLOCK_RELEASE }}"
           echo "Version: ${{ steps.upstream.outputs.version }}"
           echo "Build date: ${{ steps.upstream.outputs.build_date }}"
           echo "VCS ref: ${{ steps.upstream.outputs.vcs_ref }}"
