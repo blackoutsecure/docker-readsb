@@ -64,7 +64,7 @@ jobs:
         run: docker run --rm -i hadolint/hadolint:latest hadolint - < "${DOCKERFILE_PATH}" || true
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Validate required secrets and namespace
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
@@ -145,7 +145,7 @@ jobs:
 
       - name: Build only (PR/check mode)
         if: ${{ env.SHOULD_PUBLISH != 'true' }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ env.DOCKERFILE_PATH }}
@@ -170,7 +170,7 @@ jobs:
       - name: Build and publish by digest (main/manual publish mode)
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ env.DOCKERFILE_PATH }}
@@ -243,6 +243,16 @@ jobs:
 
       - name: Confirm Docker auth is active
         run: docker info > /dev/null && echo "✓ Docker authentication confirmed"
+
+      - name: Generate Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: |-
+            ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=raw,value=latest
 
       - name: Download digest artifacts
         uses: actions/download-artifact@v4

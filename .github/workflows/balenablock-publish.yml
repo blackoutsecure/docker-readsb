@@ -2,6 +2,7 @@ name: Balena Build and Publish
 
 on:
   pull_request:
+    types: [opened, synchronize, closed]
     branches:
       - main
     paths:
@@ -31,79 +32,18 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NO_CACHE: 'true'
-  NODE_VERSION: '24'
-  BALENA_COMPOSE_FILE: balena-compose.yml
   BALENA_BLOCK_RELEASE: readsb
-  SHOULD_PUBLISH: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
   READSB_REPO_BRANCH: dev
 
 jobs:
   balena:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Validate Balena compose file syntax
-        run: |
-          set -euo pipefail
-          docker compose -f "${{ env.BALENA_COMPOSE_FILE }}" config -q
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Install Balena CLI
-        run: npm install --global --no-progress --silent balena-cli@latest
-
-      - name: Validate Balena project locally
-        run: |
-          set -euo pipefail
-          cp "${{ env.BALENA_COMPOSE_FILE }}" docker-compose.yml
-          balena build . --deviceType genericx86-64-ext --arch amd64 --nologs
-
-      - name: Build image for CI validation
-        run: |
-          set -euo pipefail
-          docker build \
-            --file Dockerfile \
-            --tag "readsb-ci:${GITHUB_SHA}" \
-            .
-
-      - name: Validate required publish configuration
-        if: ${{ env.SHOULD_PUBLISH == 'true' }}
-        env:
-          BALENA_API_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
-          TARGET_BLOCK: ${{ env.BALENA_BLOCK_RELEASE }}
-          COMPOSE_FILE: ${{ env.BALENA_COMPOSE_FILE }}
-        run: |
-          set -euo pipefail
-
-          if [ -z "${BALENA_API_TOKEN}" ]; then
-            echo "BALENA_API_TOKEN secret is not set"
-            exit 1
-          fi
-
-          if [ -z "${TARGET_BLOCK}" ]; then
-            echo "Block target slug is not set"
-            exit 1
-          fi
-
-          if [ ! -f "${COMPOSE_FILE}" ]; then
-            echo "Compose file not found: ${COMPOSE_FILE}"
-            exit 1
-          fi
-
-      - name: Log in to Balena
-        if: ${{ env.SHOULD_PUBLISH == 'true' }}
-        env:
-          BALENA_API_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
-        run: balena login --token "${BALENA_API_TOKEN}"
 
       - name: Resolve upstream readsb metadata
         id: upstream
@@ -130,8 +70,9 @@ jobs:
             echo "version=${VERSION}"
           } >> "$GITHUB_OUTPUT"
 
+          echo "Resolved upstream readsb version: ${VERSION}"
+
       - name: Update balena.yml with resolved version
-        if: ${{ env.SHOULD_PUBLISH == 'true' }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.upstream.outputs.version }}"
@@ -140,12 +81,17 @@ jobs:
           grep "^version:" balena.yml
 
       - name: Deploy to Balena block
-        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        uses: balena-io/deploy-to-balena-action@master
+        with:
+          balena_token: ${{ secrets.BALENA_API_TOKEN }}
+          fleet: ${{ env.BALENA_BLOCK_RELEASE }}
+          layer_cache: true
+          debug: false
+          source: .
+
+      - name: Log deployment info
         run: |
-          set -euo pipefail
-          cp "${{ env.BALENA_COMPOSE_FILE }}" docker-compose.yml
-          echo "Deploying to block: ${{ env.BALENA_BLOCK_RELEASE }}"
+          echo "Deployed to block: ${{ env.BALENA_BLOCK_RELEASE }}"
           echo "Version: ${{ steps.upstream.outputs.version }}"
           echo "Build date: ${{ steps.upstream.outputs.build_date }}"
           echo "VCS ref: ${{ steps.upstream.outputs.vcs_ref }}"
-          balena push "${{ env.BALENA_BLOCK_RELEASE }}" --source .
