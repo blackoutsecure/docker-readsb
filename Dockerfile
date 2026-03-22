@@ -34,7 +34,7 @@ RUN apk add --no-cache \
 WORKDIR /src
 RUN git clone --branch ${READSB_REPO_BRANCH} --single-branch --depth 1 ${READSB_REPO_URL} . && \
     BUILD_DATE="$(git log -1 --format=%cI)" && \
-    VERSION="$(cat version 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo unknown)" && \
+    VERSION="$(cat VERSION 2>/dev/null || cat version 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo unknown)" && \
     VCS_REF="$(git rev-parse HEAD)" && \
     printf 'BUILD_DATE=%s\nVERSION=%s\nVCS_REF=%s\nVCS_URL=%s\n' "${BUILD_DATE}" "${VERSION}" "${VCS_REF}" "${VCS_URL}" > /tmp/readsb-build-metadata.env && \
     rm -rf .git
