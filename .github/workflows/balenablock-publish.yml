@@ -113,6 +113,15 @@ jobs:
             echo "version=${VERSION}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Update balena.yml with resolved version
+        if: ${{ env.SHOULD_PUBLISH == 'true' }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.upstream.outputs.version }}"
+          echo "Updating balena.yml version to: ${VERSION}"
+          sed -i "s/^version: .*/version: ${VERSION}/" balena.yml
+          grep "^version:" balena.yml
+
       - name: Deploy to Balena block
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         run: |
