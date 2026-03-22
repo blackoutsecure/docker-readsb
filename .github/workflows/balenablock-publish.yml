@@ -88,7 +88,7 @@ jobs:
           echo "Using balena-compose.yml for block deployment"
           grep "^version:" docker-compose.yml
 
-      - name: Deploy to Balena block
+      - name: Publish Balena block release
         uses: balena-io/deploy-to-balena-action@master
         with:
           balena_token: ${{ secrets.BALENA_API_TOKEN }}
@@ -99,7 +99,7 @@ jobs:
 
       - name: Log deployment info
         run: |
-          echo "Deployed to fleet: ${{ env.BALENA_NAMESPACE }}/${{ env.BALENA_BLOCK_RELEASE }}"
+          echo "Published block release slug: ${{ env.BALENA_NAMESPACE }}/${{ env.BALENA_BLOCK_RELEASE }}"
           echo "Version: ${{ steps.upstream.outputs.version }}"
           echo "Build date: ${{ steps.upstream.outputs.build_date }}"
           echo "VCS ref: ${{ steps.upstream.outputs.vcs_ref }}"
