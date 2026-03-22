@@ -25,7 +25,7 @@ Find us at:
 [![Discord](https://img.shields.io/discord/354974912613449730.svg?style=flat-square&color=E7931D&logo=discord&logoColor=FFFFFF)](https://linuxserver.io/discord)
 [![GitHub Release](https://img.shields.io/github/release/blackoutsecure/docker-readsb.svg?style=flat-square&color=E7931D&logo=github&logoColor=FFFFFF)](https://github.com/blackoutsecure/docker-readsb/releases)
 
-[Readsb](https://github.com/wiedehopf/readsb) is a simple, high-performance ADS-B decoder for Mode S messages. It can be used to receive and decode signals from aircraft transponders operating in the 1090 MHz band. This container is based on the LinuxServer.io base image and includes hardened runtime defaults, s6 process supervision, and optimized support for RTL-SDR devices.
+LinuxServer.io style containerized build of [readsb](https://github.com/wiedehopf/readsb), a high-performance ADS-B decoder with RTL-SDR support. Outputs JSON and network feeds, running in a hardened LinuxServer.io-based environment for reliable aircraft signal decoding.
 
 ---
 
@@ -130,6 +130,77 @@ docker run -d \
   --restart unless-stopped \
   ghcr.io/blackoutsecure/readsb:latest
 ```
+
+### Balena Deployment
+
+This image can be deployed to Balena-powered IoT devices. Use the included `balena-compose.yml` file for deployment:
+
+```bash
+balena push <your-fleet-name>
+```
+
+The balena-compose configuration includes:
+- Privileged access and host networking for RTL-SDR USB device access
+- Kernel modules and firmware support via Balena labels
+- D-Bus and Supervisor API features for system integration
+
+Key Balena features enabled:
+- `io.balena.features.kernel-modules: '1'` - RTL-SDR kernel driver support
+- `io.balena.features.firmware: '1'` - Firmware loading capability  
+- `network_mode: host` - Direct hardware access
+- `privileged: true` - Full device access for USB SDR
+
+For more information on Balena deployment, see the [Balena documentation](https://docs.balena.io/).
+
+### Balena Block Publication
+
+This project is registered as a public Balena Block and is available on [balenaHub](https://hub.balena.io/blocks). 
+
+#### For Block Maintainers
+
+To release new versions of this block:
+
+```bash
+# Push a new release
+balena push <block-name>
+```
+
+Release management is handled via the Balena Dashboard:
+- New releases are tracked and can be set as default
+- Each release can be pinned or set to track latest
+- Manage block visibility in Settings (toggle to make public)
+
+#### For Block Users
+
+To use this block in your Balena fleet, add it to your `docker-compose.yml`:
+
+```yaml
+services:
+  readsb:
+    image: bh.cr/balenablocks/readsb-aarch64
+    privileged: true
+    network_mode: host
+    environment:
+      - TZ=Etc/UTC
+      - READSB_ARGS=--net --device-type rtlsdr --gain auto
+    volumes:
+      - config:/config
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    ports:
+      - "30001:30001"
+      - "30002:30002"
+      - "30003:30003"
+      - "30004:30004"
+      - "30005:30005"
+      - "30104:30104"
+    restart: unless-stopped
+```
+
+Available image references:
+- `bh.cr/balenablocks/readsb-aarch64` - Latest aarch64 (ARM 64-bit)
+- `bh.cr/balenablocks/readsb-aarch64:1.0.0` - Specific version (aarch64)
+- `bh.cr/balenablocks/readsb-amd64` - Latest amd64 (x86-64)
 
 ---
 

@@ -69,7 +69,7 @@ ARG VCS_URL
 LABEL build_version="Linuxserver.io version:- unknown Build-date:- unknown"
 LABEL maintainer="Blackout Secure - https://blackoutsecure.app/"
 LABEL org.opencontainers.image.title="docker-readsb" \
-    org.opencontainers.image.description="LinuxServer-style readsb container with s6 init and hardened runtime defaults" \
+    org.opencontainers.image.description="LinuxServer.io style containerized build of readsb, a high-performance ADS-B decoder with RTL-SDR support. Outputs JSON and network feeds, running in a hardened LinuxServer.io-based environment for reliable aircraft signal decoding." \
     org.opencontainers.image.url="${VCS_URL}" \
     org.opencontainers.image.source="${VCS_URL}" \
     org.opencontainers.image.revision="unknown" \

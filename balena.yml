@@ -1,0 +1,27 @@
+name: readsb
+description: >-
+  LinuxServer.io style containerized build of readsb, a high-performance ADS-B
+  decoder with RTL-SDR support. Outputs JSON and network feeds, running in a
+  hardened LinuxServer.io-based environment for reliable aircraft signal decoding.
+version: 1.0.0
+type: sw.block
+assets:
+  repository:
+    type: blob.asset
+    data:
+      url: 'https://github.com/blackoutsecure/docker-readsb'
+  logo:
+    type: blob.asset
+    data:
+      url: 'https://raw.githubusercontent.com/blackoutsecure/docker-readsb/main/logo.png'
+data:
+  defaultDeviceType: raspberrypi3
+  supportedDeviceTypes:
+    - raspberrypi3
+    - raspberrypi3-64
+    - raspberrypi4
+    - raspberrypi4-64
+    - raspberrypi400
+    - raspberrypi400-64
+    - intel-nuc
+    - genericx86-64-ext

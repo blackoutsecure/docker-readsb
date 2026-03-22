@@ -1,9 +1,13 @@
+version: '2.1'
+
 services:
   readsb:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: readsb
+    privileged: true
+    network_mode: host
     environment:
       - TZ=Etc/UTC
       - READSB_ARGS=--net --device-type rtlsdr --gain auto
@@ -11,6 +15,12 @@ services:
       - config:/config
     devices:
       - /dev/bus/usb:/dev/bus/usb
+    labels:
+      io.balena.features.kernel-modules: '1'
+      io.balena.features.firmware: '1'
+      io.balena.features.dbus: '1'
+      io.balena.features.supervisor-api: '1'
+      io.balena.features.balena-api: '1'
     ports:
       - "30001:30001"
       - "30002:30002"
