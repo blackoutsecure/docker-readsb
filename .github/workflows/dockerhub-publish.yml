@@ -110,25 +110,6 @@ jobs:
         if: ${{ env.SHOULD_PUBLISH == 'true' }}
         run: docker info > /dev/null
 
-      - name: Resolve image tags
-        id: tags
-        run: |
-          set -euo pipefail
-
-          ARCH="${{ matrix.arch }}"
-          SHORT_SHA="${GITHUB_SHA::12}"
-          IMAGE_REF="${REGISTRY}/${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
-          VERSION_LABEL="${SHORT_SHA}"
-
-          {
-            echo "docker_tags<<EOF"
-            echo "${IMAGE_REF}:latest-${ARCH}"
-            echo "${IMAGE_REF}:sha-${SHORT_SHA}-${ARCH}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-          echo "version_label=${VERSION_LABEL}" >> "$GITHUB_OUTPUT"
-
       - name: Resolve upstream readsb metadata
         id: upstream
         run: |
@@ -151,6 +132,23 @@ jobs:
             echo "vcs_ref=${VCS_REF}"
             echo "build_date=${BUILD_DATE}"
             echo "version=${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve image tags
+        id: tags
+        run: |
+          set -euo pipefail
+
+          ARCH="${{ matrix.arch }}"
+          SHORT_SHA="${GITHUB_SHA::12}"
+          IMAGE_REF="${REGISTRY}/${DOCKERHUB_NAMESPACE}/${IMAGE_NAME}"
+
+          {
+            echo "docker_tags<<EOF"
+            echo "${IMAGE_REF}:latest-${ARCH}"
+            echo "${IMAGE_REF}:${{ steps.upstream.outputs.version }}-${ARCH}"
+            echo "${IMAGE_REF}:${{ steps.upstream.outputs.version }}-${SHORT_SHA}-${ARCH}"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Build only (PR/check mode)
@@ -218,10 +216,39 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Resolve upstream readsb metadata
+        id: upstream
+        env:
+          READSB_REPO_URL: https://github.com/wiedehopf/readsb
+          READSB_REPO_BRANCH: dev
+        run: |
+          set -euo pipefail
+
+          UPSTREAM_REPO_URL="${READSB_REPO_URL}.git"
+          UPSTREAM_BRANCH="${READSB_REPO_BRANCH}"
+
+          TMPDIR="$(mktemp -d)"
+
+          git init "${TMPDIR}" >/dev/null
+          git -C "${TMPDIR}" remote add origin "${UPSTREAM_REPO_URL}"
+          git -C "${TMPDIR}" fetch --depth 1 origin "${UPSTREAM_BRANCH}" >/dev/null
+
+          VCS_REF="$(git -C "${TMPDIR}" rev-parse FETCH_HEAD)"
+          VERSION="$(git -C "${TMPDIR}" show FETCH_HEAD:version 2>/dev/null || git -C "${TMPDIR}" describe --tags --always --dirty FETCH_HEAD 2>/dev/null || echo unknown)"
+          SHORT_VCS_REF="${VCS_REF:0:12}"
+
+          {
+            echo "vcs_ref=${VCS_REF}"
+            echo "short_vcs_ref=${SHORT_VCS_REF}"
+            echo "version=${VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create and push multi-arch manifests
         env:
           IMAGE_REF: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
           SHORT_SHA: ${{ github.sha }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+          SHORT_VCS_REF: ${{ steps.upstream.outputs.short_vcs_ref }}
         run: |
           set -euo pipefail
 
@@ -273,6 +300,10 @@ jobs:
             "${IMAGE_REF}:latest-amd64" \
             "${IMAGE_REF}:latest-arm64"
 
-          merge_manifest "${IMAGE_REF}:sha-${SHORT_SHA}" \
-            "${IMAGE_REF}:sha-${SHORT_SHA}-amd64" \
-            "${IMAGE_REF}:sha-${SHORT_SHA}-arm64"
+          merge_manifest "${IMAGE_REF}:${VERSION}" \
+            "${IMAGE_REF}:${VERSION}-amd64" \
+            "${IMAGE_REF}:${VERSION}-arm64"
+
+          merge_manifest "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}" \
+            "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}-amd64" \
+            "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}-arm64"
