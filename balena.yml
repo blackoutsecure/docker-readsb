@@ -4,7 +4,7 @@ description: >-
   decoder with RTL-SDR support. Outputs JSON and network feeds, running in a
   hardened LinuxServer.io-based environment for reliable aircraft signal decoding.
 version: x.x.x
-type: sw.block
+type: sw.application
 assets:
   repository:
     type: blob.asset
