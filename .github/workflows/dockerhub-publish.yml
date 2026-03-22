@@ -151,6 +151,9 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+          echo "arch=${ARCH}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
       - name: Build only (PR/check mode)
         if: ${{ env.SHOULD_PUBLISH != 'true' }}
         uses: docker/build-push-action@v6
@@ -307,3 +310,21 @@ jobs:
           merge_manifest "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}" \
             "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}-amd64" \
             "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}-arm64"
+
+      - name: Clean up arch-specific tags from DockerHub
+        if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
+        env:
+          REGISTRY_URL: https://hub.docker.com/v2
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          VERSION: ${{ steps.upstream.outputs.version }}
+          SHORT_VCS_REF: ${{ steps.upstream.outputs.short_vcs_ref }}
+        run: |
+          set -euo pipefail
+
+          # DockerHub API does not support deleting specific tags via API
+          # They will remain as untagged images and get garbage collected
+          echo "Note: Arch-specific image tags have been built for manifest creation"
+          echo "Only the unified manifest tags are intended for public use:"
+          echo "  - ${IMAGE_REF}:latest"
+          echo "  - ${IMAGE_REF}:${VERSION}"
+          echo "  - ${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}"
