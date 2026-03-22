@@ -77,8 +77,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.upstream.outputs.version }}"
-          echo "Updating balena.yml version to: ${VERSION}"
-          sed -i "s/^version: .*/version: ${VERSION}/" balena.yml
+          echo "Updating balena.yml version from placeholder to: ${VERSION}"
+          sed -i -E "s/^version: .*/version: ${VERSION}/" balena.yml
           grep "^version:" balena.yml
 
       - name: Prepare Balena composition
