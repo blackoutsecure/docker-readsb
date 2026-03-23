@@ -7,12 +7,8 @@ on:
       - released
   workflow_dispatch:
     inputs:
-      version_tag:
-        description: 'Release version tag (e.g., v1.2.3)'
-        required: true
-        type: string
       release_name:
-        description: 'Release name (optional)'
+        description: 'Release name (optional, defaults to upstream version)'
         required: false
         type: string
 
@@ -38,19 +34,27 @@ jobs:
         id: detect
         env:
           EVENT_ACTION: ${{ github.event_name }}
-          DISPATCH_TAG: ${{ github.event.inputs.version_tag }}
           DISPATCH_NAME: ${{ github.event.inputs.release_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_NAME: ${{ github.event.release.name }}
+          READSB_REPO_BRANCH: ${{ env.READSB_REPO_BRANCH }}
         run: |
           set -euo pipefail
 
           echo "ℹ Event: ${EVENT_ACTION}"
 
           if [ "${EVENT_ACTION}" = "workflow_dispatch" ]; then
-            TAG="${DISPATCH_TAG}"
-            NAME="${DISPATCH_NAME:-Manual Release}"
-            echo "ℹ Manual dispatch detected"
+            echo "ℹ Manual dispatch: fetching version from upstream wiedehopf/readsb (${READSB_REPO_BRANCH})"
+            UPSTREAM_VERSION=$(curl -fsSL \
+              "https://raw.githubusercontent.com/wiedehopf/readsb/${READSB_REPO_BRANCH}/version" \
+              2>/dev/null | tr -d '[:space:]')
+            if [[ -z "${UPSTREAM_VERSION}" ]]; then
+              echo "ERROR: Could not fetch version from wiedehopf/readsb/${READSB_REPO_BRANCH}/version"
+              exit 1
+            fi
+            echo "ℹ Upstream version detected: ${UPSTREAM_VERSION}"
+            TAG="${UPSTREAM_VERSION}"
+            NAME="${DISPATCH_NAME:-Upstream readsb ${UPSTREAM_VERSION}}"
           else
             TAG="${RELEASE_TAG}"
             NAME="${RELEASE_NAME:-GitHub Release}"
@@ -66,7 +70,7 @@ jobs:
 
           echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "release_name=${NAME}" >> "$GITHUB_OUTPUT"
-          echo "✓ Release validation passed"
+          echo "✓ Release validation passed: ${TAG}"
 
   release-metadata:
     needs: validate-release
