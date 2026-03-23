@@ -1,7 +1,8 @@
 name: readsb
 description: >-
-  Containerized build of readsb, a high performance ADS-B decoder with RTL-SDR support. Outputs JSON and network feeds, running in a
-  hardened Linux based environment for reliable aircraft signal decoding.
+  LinuxServer.io style containerized build of readsb, a high-performance ADS-B
+  decoder with RTL-SDR support. Outputs JSON and network feeds, running in a
+  hardened LinuxServer.io-based environment for reliable aircraft signal decoding.
 
 post-provisioning: >-
   ## Usage instructions
