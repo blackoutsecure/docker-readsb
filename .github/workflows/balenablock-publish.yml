@@ -153,7 +153,8 @@ jobs:
           VERSION="${{ steps.upstream.outputs.version }}"
           VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
           SHORT_REF="${VCS_REF:0:7}"
-          RELEASE_ID="${{ steps.balena-deploy.outputs.release_id }}"
+          RELEASE_ID=$(balena releases "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
+          echo "⚠ Tagged release ${RELEASE_ID} with metadata"
           balena tag set release_version "${VERSION}" --release "${RELEASE_ID}"
           balena tag set upstream_commit "${SHORT_REF}" --release "${RELEASE_ID}"
           balena tag set changelog_url "https://github.com/blackoutsecure/docker-readsb/releases" --release "${RELEASE_ID}"
