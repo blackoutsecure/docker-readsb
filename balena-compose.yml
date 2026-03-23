@@ -39,7 +39,7 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp
-      - /run
+      - /run:exec
     read_only: false
     restart: unless-stopped
 

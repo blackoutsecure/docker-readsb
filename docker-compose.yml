@@ -34,7 +34,7 @@ services:
     restart: unless-stopped
     tmpfs:
       - /tmp
-      - /run
+      - /run:exec
     read_only: false
 
 volumes:
