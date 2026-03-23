@@ -183,6 +183,100 @@ jobs:
             READSB_REPO_URL=${{ env.READSB_REPO_URL }}
             READSB_REPO_BRANCH=${{ env.READSB_REPO_BRANCH }}
 
+  create-github-release:
+    needs: [validate-release, release-metadata, tag-images]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Generate release body
+        id: body
+        env:
+          RELEASE_VERSION: ${{ needs.release-metadata.outputs.version }}
+          RELEASE_TAG: ${{ needs.validate-release.outputs.release_tag }}
+          UPSTREAM_COMMIT: ${{ needs.release-metadata.outputs.upstream_commit }}
+          UPSTREAM_VERSION: ${{ needs.release-metadata.outputs.upstream_version }}
+          DOCKER_IMAGE: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+        run: |
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          cat > /tmp/release_notes.md << EOMD
+          ## Release ${RELEASE_VERSION}
+
+          ### Docker Hub Images
+
+          **Primary Registry:**
+          \`\`\`bash
+          docker pull ${DOCKER_IMAGE}:${RELEASE_VERSION}
+          docker pull ${DOCKER_IMAGE}:latest
+          \`\`\`
+
+          **Available Tags:**
+          - \`${DOCKER_IMAGE}:${RELEASE_VERSION}\` - Specific version (recommended for production)
+          - \`${DOCKER_IMAGE}:latest\` - Latest stable release
+          - Multi-arch support: amd64, arm64
+
+          ### Build Information
+
+          - **Image Version:** ${RELEASE_VERSION}
+          - **Release Tag:** ${RELEASE_TAG}
+          - **Upstream readsb:** ${UPSTREAM_VERSION} (commit: ${UPSTREAM_COMMIT})
+          - **Build Date:** ${BUILD_DATE}
+          - **Repository:** https://github.com/${{ github.repository }}
+
+          ### Supported Architectures
+
+          | Architecture | Platform |
+          | --- | --- |
+          | x86-64 | linux/amd64 |
+          | ARM 64-bit | linux/arm64v8 |
+
+          ### Quick Start
+
+          \`\`\`bash
+          docker run -d \\
+            --name readsb \\
+            -e TZ=Etc/UTC \\
+            -e READSB_ARGS="--net --device-type rtlsdr" \\
+            -p 30001:30001 \\
+            -p 30002:30002 \\
+            -p 30003:30003 \\
+            -p 30004:30004 \\
+            -p 30005:30005 \\
+            -p 30104:30104 \\
+            -v readsb-config:/config \\
+            --device=/dev/bus/usb:/dev/bus/usb \\
+            ${DOCKER_IMAGE}:${RELEASE_VERSION}
+          \`\`\`
+
+          ### Documentation
+
+          - [Full README](https://github.com/${{ github.repository }}/blob/main/README.md)
+          - [Upstream readsb Documentation](https://github.com/wiedehopf/readsb)
+          - [Release History](https://github.com/${{ github.repository }}/releases)
+
+          ### About This Image
+
+          - **Built with:** LinuxServer.io-style patterns (s6, hardened defaults)
+          - **Maintained by:** Blackout Secure
+          - **Features:** RTL-SDR support, multi-protocol outputs, JSON API, tar1090 database
+          - **Official Status:** Unofficial community container (not affiliated with LinuxServer.io or wiedehopf)
+          EOMD
+          cat /tmp/release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.validate-release.outputs.release_tag }}
+          name: ${{ needs.release-metadata.outputs.release_name }}
+          body_path: /tmp/release_notes.md
+          draft: false
+          prerelease: false
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   create-release-notes:
     needs: [validate-release, release-metadata]
     runs-on: ubuntu-latest
@@ -357,7 +451,7 @@ jobs:
             // });
 
   summary:
-    needs: [validate-release, release-metadata, tag-images]
+    needs: [validate-release, release-metadata, tag-images, create-github-release, create-release-notes]
     runs-on: ubuntu-latest
     if: always()
     steps:
