@@ -8,8 +8,8 @@ services:
     container_name: readsb
     network_mode: host
     environment:
-      - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
+      TZ: Etc/UTC
+      READSB_ARGS: '--net --device-type rtlsdr'
     volumes:
       - config:/config
       - json:/run/readsb

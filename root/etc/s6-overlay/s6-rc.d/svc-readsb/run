@@ -42,7 +42,9 @@ if ! mkdir -p "${readsb_run_dir}"; then
     exit 1
 fi
 
+readsb_args_source="default"
 if [[ -n ${READSB_ARGS:-} ]]; then
+    readsb_args_source="env"
     read -r -a readsb_args <<< "${READSB_ARGS}"
 else
     readsb_args=(
@@ -114,6 +116,8 @@ print_kv "PGID" "${PGID:-unset}"
 print_kv "UMASK" "${UMASK:-unset}"
 print_kv "TZ" "${TZ:-unset}"
 print_kv "READSB_USER" "${readsb_user}"
+print_kv "READSB_ARGS(raw)" "${READSB_ARGS:-unset}"
+print_kv "READSB_ARGS(src)" "${readsb_args_source}"
 print_kv "effective_PUID" "${PUID:-unset}"
 print_kv "effective_PGID" "${PGID:-unset}"
 print_kv "READSB_RUN_DIR" "${readsb_run_dir}"

@@ -7,8 +7,8 @@ services:
       dockerfile: Dockerfile
     container_name: readsb
     environment:
-      - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
+      TZ: Etc/UTC
+      READSB_ARGS: '--net --device-type rtlsdr'
     volumes:
       - config:/config
       - json:/run/readsb
