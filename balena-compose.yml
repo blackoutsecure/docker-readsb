@@ -28,9 +28,6 @@ services:
       - "30004:30004"
       - "30005:30005"
       - "30104:30104"
-    tmpfs:
-      - /run:exec,mode=755
-      - /tmp
     read_only: false
     restart: unless-stopped
 
