@@ -126,10 +126,26 @@ print_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
 print_kv "effective_ARGS" "${readsb_args_rendered}"
 
 if [[ ${_dt_val} == "rtlsdr" ]]; then
+    usb_char_devs=0
+    if [[ -d /dev/bus/usb ]]; then
+        usb_char_devs=$(find /dev/bus/usb -type c 2>/dev/null | wc -l | tr -d '[:space:]')
+    fi
+    print_kv "USB_CHAR_DEVS" "${usb_char_devs}"
+
+    if command -v lsusb >/dev/null 2>&1; then
+        lsusb_compact=$(lsusb 2>/dev/null | paste -sd '; ' -)
+        print_kv "LSUSB" "${lsusb_compact:-none}"
+    else
+        print_kv "LSUSB" "unavailable"
+    fi
+
     if [[ ! -e /dev/bus/usb ]]; then
         echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input." >&2
     elif [[ ! -r /dev/bus/usb ]]; then
         echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is not readable by the container. Check device mapping and runtime permissions." >&2
+    elif [[ ${usb_char_devs} -eq 0 ]]; then
+        echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is present but contains no USB device nodes." >&2
+        echo "[$(timestamp_utc)] WARNING: Check host USB passthrough support and that the SDR is physically attached." >&2
     fi
 fi
 
