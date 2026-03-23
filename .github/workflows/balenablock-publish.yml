@@ -158,7 +158,7 @@ jobs:
           curl -X PATCH "https://api.balena-cloud.com/v7/release(${RELEASE_ID})" \
             -H "Authorization: Bearer ${BALENA_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"notes\": \"${NOTES}\"}"
+            -d "{\"description\": \"${NOTES}\"}"
           echo "✓ Release ${RELEASE_ID} notes updated"
 
       - name: Set release notes (manual)
@@ -175,7 +175,7 @@ jobs:
           curl -X PATCH "https://api.balena-cloud.com/v7/release(${RELEASE_ID})" \
             -H "Authorization: Bearer ${BALENA_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"notes\": \"${NOTES}\"}"
+            -d "{\"description\": \"${NOTES}\"}"
           echo "✓ Release ${RELEASE_ID} notes updated"
 
       - name: Log deployment info
