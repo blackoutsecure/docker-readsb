@@ -148,7 +148,7 @@ jobs:
           BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
         run: |
           set -euo pipefail
-          npm install -g balena-cli jq
+          npm install -g balena-cli
           balena login --token "${BALENA_TOKEN}"
           VERSION="${{ steps.upstream.outputs.version }}"
           VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
