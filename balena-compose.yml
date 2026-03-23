@@ -28,14 +28,9 @@ services:
       - "30004:30004"
       - "30005:30005"
       - "30104:30104"
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:
-      - SETUID
-      - SETGID
-      - CHOWN
+    tmpfs:
+      - /run:exec,mode=755
+      - /tmp
     read_only: false
     restart: unless-stopped
 
