@@ -139,40 +139,44 @@ jobs:
           balena push "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" \
             --source ./.balena-source \
             --release-tag balena-ci-commit-sha "${GITHUB_SHA}"
-          RELEASE_ID=$(balena releases "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
+          RELEASE_ID=$(balena release list "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
           echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
 
-      - name: Tag release metadata (automated)
+      - name: Set release notes (automated)
         if: github.event_name != 'workflow_dispatch'
         env:
           BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
         run: |
           set -euo pipefail
-          npm install -g balena-cli
+          npm install -g balena-cli jq
           balena login --token "${BALENA_TOKEN}"
           VERSION="${{ steps.upstream.outputs.version }}"
           VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
           SHORT_REF="${VCS_REF:0:7}"
-          RELEASE_ID=$(balena releases "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
-          echo "⚠ Tagged release ${RELEASE_ID} with metadata"
-          balena tag set release_version "${VERSION}" --release "${RELEASE_ID}"
-          balena tag set upstream_commit "${SHORT_REF}" --release "${RELEASE_ID}"
-          balena tag set changelog_url "https://github.com/blackoutsecure/docker-readsb/releases" --release "${RELEASE_ID}"
+          RELEASE_ID=$(balena release list "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
+          NOTES="readsb ${VERSION} (upstream commit ${SHORT_REF})\n\nFull changelog: https://github.com/blackoutsecure/docker-readsb/releases"
+          curl -X PATCH "https://api.balena-cloud.com/v7/release(${RELEASE_ID})" \
+            -H "Authorization: Bearer ${BALENA_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"notes\": \"${NOTES}\"}"
+          echo "✓ Release ${RELEASE_ID} notes updated"
 
-      - name: Tag release metadata (manual)
+      - name: Set release notes (manual)
         if: github.event_name == 'workflow_dispatch'
         env:
           BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
         run: |
           set -euo pipefail
-          balena login --token "${BALENA_TOKEN}"
           VERSION="${{ steps.upstream.outputs.version }}"
           VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
           SHORT_REF="${VCS_REF:0:7}"
           RELEASE_ID="${{ steps.balena-deploy-manual.outputs.release_id }}"
-          balena tag set release_version "${VERSION}" --release "${RELEASE_ID}"
-          balena tag set upstream_commit "${SHORT_REF}" --release "${RELEASE_ID}"
-          balena tag set changelog_url "https://github.com/blackoutsecure/docker-readsb/releases" --release "${RELEASE_ID}"
+          NOTES="readsb ${VERSION} (upstream commit ${SHORT_REF})\n\nFull changelog: https://github.com/blackoutsecure/docker-readsb/releases"
+          curl -X PATCH "https://api.balena-cloud.com/v7/release(${RELEASE_ID})" \
+            -H "Authorization: Bearer ${BALENA_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"notes\": \"${NOTES}\"}"
+          echo "✓ Release ${RELEASE_ID} notes updated"
 
       - name: Log deployment info
         run: |
