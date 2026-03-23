@@ -142,42 +142,6 @@ jobs:
           RELEASE_ID=$(balena release list "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
           echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
 
-      - name: Set release notes (automated)
-        if: github.event_name != 'workflow_dispatch'
-        env:
-          BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          npm install -g balena-cli
-          balena login --token "${BALENA_TOKEN}"
-          VERSION="${{ steps.upstream.outputs.version }}"
-          VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
-          SHORT_REF="${VCS_REF:0:7}"
-          RELEASE_ID=$(balena release list "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
-          NOTES="readsb ${VERSION} (upstream commit ${SHORT_REF})\n\nFull changelog: https://github.com/blackoutsecure/docker-readsb/releases"
-          curl -X PATCH "https://api.balena-cloud.com/v7/release(${RELEASE_ID})" \
-            -H "Authorization: Bearer ${BALENA_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"description\": \"${NOTES}\"}"
-          echo "✓ Release ${RELEASE_ID} notes updated"
-
-      - name: Set release notes (manual)
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.upstream.outputs.version }}"
-          VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
-          SHORT_REF="${VCS_REF:0:7}"
-          RELEASE_ID="${{ steps.balena-deploy-manual.outputs.release_id }}"
-          NOTES="readsb ${VERSION} (upstream commit ${SHORT_REF})\n\nFull changelog: https://github.com/blackoutsecure/docker-readsb/releases"
-          curl -X PATCH "https://api.balena-cloud.com/v7/release(${RELEASE_ID})" \
-            -H "Authorization: Bearer ${BALENA_TOKEN}" \
-            -H "Content-Type: application/json" \
-            -d "{\"description\": \"${NOTES}\"}"
-          echo "✓ Release ${RELEASE_ID} notes updated"
-
       - name: Log deployment info
         run: |
           echo "Published block release slug: ${{ env.BALENA_NAMESPACE }}/${{ env.BALENA_BLOCK_RELEASE }}"
