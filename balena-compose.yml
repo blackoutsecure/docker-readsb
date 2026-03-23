@@ -6,13 +6,13 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: readsb
-    privileged: true
     network_mode: host
     environment:
       - TZ=Etc/UTC
       - READSB_ARGS=--net --device-type rtlsdr
     volumes:
       - config:/config
+      - json:/run/readsb
     devices:
       - /dev/bus/usb:/dev/bus/usb
     labels:
@@ -28,8 +28,21 @@ services:
       - "30004:30004"
       - "30005:30005"
       - "30104:30104"
+    privileged: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - SETUID
+      - SETGID
+      - CHOWN
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /run
     read_only: false
     restart: unless-stopped
 
 volumes:
   config:
+  json:

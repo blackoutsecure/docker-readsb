@@ -35,8 +35,7 @@ services:
     tmpfs:
       - /tmp
       - /run
-    # Uncomment for production deployments with full read-only filesystem
-    # read_only: true
+    read_only: false
 
 volumes:
   config:
