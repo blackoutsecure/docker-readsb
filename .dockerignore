@@ -15,10 +15,7 @@ readme-vars.yml
 .editorconfig
 
 # Build and compose files
-docker-compose.yml
-docker-compose.*.yml
-balena-compose.yml
-balena.yml
+# Keep compose and balena metadata files in context for Balena block builds.
 
 # Development and examples
 debian/
