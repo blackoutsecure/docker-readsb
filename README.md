@@ -2,15 +2,33 @@
 
 ![readsb logo](logo.png)
 
-[![Discord](https://img.shields.io/discord/354974912613449730.svg?style=flat-square&color=E7931D&logo=discord&logoColor=FFFFFF)](https://linuxserver.io/discord)
+[![GitHub Stars](https://img.shields.io/github/stars/blackoutsecure/docker-readsb?style=flat-square&color=E7931D&logo=github)](https://github.com/blackoutsecure/docker-readsb/stargazers)
+[![Docker Pulls](https://img.shields.io/docker/pulls/blackoutsecure/readsb?style=flat-square&color=E7931D&logo=docker&logoColor=FFFFFF)](https://hub.docker.com/r/blackoutsecure/readsb)
 [![GitHub Release](https://img.shields.io/github/release/blackoutsecure/docker-readsb.svg?style=flat-square&color=E7931D&logo=github&logoColor=FFFFFF)](https://github.com/blackoutsecure/docker-readsb/releases)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![GitHub Downloads](https://img.shields.io/github/downloads/blackoutsecure/docker-readsb/total?style=flat-square&color=E7931D&logo=github&logoColor=FFFFFF)](https://github.com/blackoutsecure/docker-readsb/releases)
+[![Release CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/release.yml?style=flat-square&label=release%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/release.yml)
+[![Balena CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/balenablock-publish.yml?style=flat-square&label=balena%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/balenablock-publish.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
 Unofficial community image for [readsb](https://github.com/wiedehopf/readsb), built with [LinuxServer.io](https://linuxserver.io/) style container patterns (s6, hardened defaults, practical runtime options) for RTL-SDR ADS-B workloads.
 
-This repository is not an official LinuxServer.io image release.
-
 Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app).
+
+> [!IMPORTANT]
+> This repository is not an official LinuxServer.io image release.
+> Want to help make it an officially supported LinuxServer.io Community image?
+> Add your support in [linuxserver/discussions/108](https://github.com/orgs/linuxserver/discussions/108).
+
+## Overview
+
+This project packages upstream [wiedehopf/readsb](https://github.com/wiedehopf/readsb) into an easy-to-run, LinuxServer.io-style container image with practical defaults for ADS-B receivers, JSON/network outputs, and RTL-SDR hardware access.
+
+Quick links:
+
+- Docker Hub listing: [blackoutsecure/readsb](https://hub.docker.com/r/blackoutsecure/readsb)
+- Balena block listing: [readsb block on Balena Hub](https://hub.balena.io/blocks/2351129/readsb)
+- GitHub repository: [blackoutsecure/docker-readsb](https://github.com/blackoutsecure/docker-readsb)
+- Upstream application: [wiedehopf/readsb](https://github.com/wiedehopf/readsb)
 
 [![balena deploy button](https://www.balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/blackoutsecure/docker-readsb&configUrl=https://raw.githubusercontent.com/blackoutsecure/docker-readsb/main/balena.yml)
 
@@ -196,6 +214,8 @@ docker run -d \
 ### Balena Deployment
 
 This image can be deployed to Balena-powered IoT devices using the included `balena-compose.yml` file:
+
+- Balena block listing: [https://hub.balena.io/blocks/2351129/readsb](https://hub.balena.io/blocks/2351129/readsb)
 
 ```bash
 balena push <your-app-slug>

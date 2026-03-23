@@ -142,7 +142,7 @@ jobs:
           RELEASE_ID=$(balena releases "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
           echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
 
-      - name: Set release notes (automated)
+      - name: Tag release metadata (automated)
         if: github.event_name != 'workflow_dispatch'
         env:
           BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
@@ -154,21 +154,24 @@ jobs:
           VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
           SHORT_REF="${VCS_REF:0:7}"
           RELEASE_ID="${{ steps.balena-deploy.outputs.release_id }}"
-          balena release "${RELEASE_ID}" --note "readsb ${VERSION} (upstream commit ${SHORT_REF})
-          See https://github.com/blackoutsecure/docker-readsb/releases for full changelog."
+          balena tag set release_version "${VERSION}" --release "${RELEASE_ID}"
+          balena tag set upstream_commit "${SHORT_REF}" --release "${RELEASE_ID}"
+          balena tag set changelog_url "https://github.com/blackoutsecure/docker-readsb/releases" --release "${RELEASE_ID}"
 
-      - name: Set release notes (manual)
+      - name: Tag release metadata (manual)
         if: github.event_name == 'workflow_dispatch'
         env:
           BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
         run: |
           set -euo pipefail
+          balena login --token "${BALENA_TOKEN}"
           VERSION="${{ steps.upstream.outputs.version }}"
           VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
           SHORT_REF="${VCS_REF:0:7}"
           RELEASE_ID="${{ steps.balena-deploy-manual.outputs.release_id }}"
-          balena release "${RELEASE_ID}" --note "readsb ${VERSION} (upstream commit ${SHORT_REF})
-          See https://github.com/blackoutsecure/docker-readsb/releases for full changelog."
+          balena tag set release_version "${VERSION}" --release "${RELEASE_ID}"
+          balena tag set upstream_commit "${SHORT_REF}" --release "${RELEASE_ID}"
+          balena tag set changelog_url "https://github.com/blackoutsecure/docker-readsb/releases" --release "${RELEASE_ID}"
 
       - name: Log deployment info
         run: |
