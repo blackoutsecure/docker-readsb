@@ -115,6 +115,7 @@ jobs:
 
       - name: Publish Balena block release
         if: github.event_name != 'workflow_dispatch'
+        id: balena-deploy
         uses: balena-io/deploy-to-balena-action@master
         with:
           balena_token: ${{ secrets.BALENA_API_TOKEN }}
@@ -129,6 +130,7 @@ jobs:
 
       - name: Publish Balena block release manually
         if: github.event_name == 'workflow_dispatch'
+        id: balena-deploy-manual
         env:
           BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
         run: |
@@ -137,6 +139,36 @@ jobs:
           balena push "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" \
             --source ./.balena-source \
             --release-tag balena-ci-commit-sha "${GITHUB_SHA}"
+          RELEASE_ID=$(balena releases "${BALENA_NAMESPACE}/${BALENA_BLOCK_RELEASE}" --json | jq -r '.[0].id')
+          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Set release notes (automated)
+        if: github.event_name != 'workflow_dispatch'
+        env:
+          BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          npm install -g balena-cli
+          balena login --token "${BALENA_TOKEN}"
+          VERSION="${{ steps.upstream.outputs.version }}"
+          VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
+          SHORT_REF="${VCS_REF:0:7}"
+          RELEASE_ID="${{ steps.balena-deploy.outputs.release_id }}"
+          balena release "${RELEASE_ID}" --note "readsb ${VERSION} (upstream commit ${SHORT_REF})
+          See https://github.com/blackoutsecure/docker-readsb/releases for full changelog."
+
+      - name: Set release notes (manual)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          BALENA_TOKEN: ${{ secrets.BALENA_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.upstream.outputs.version }}"
+          VCS_REF="${{ steps.upstream.outputs.vcs_ref }}"
+          SHORT_REF="${VCS_REF:0:7}"
+          RELEASE_ID="${{ steps.balena-deploy-manual.outputs.release_id }}"
+          balena release "${RELEASE_ID}" --note "readsb ${VERSION} (upstream commit ${SHORT_REF})
+          See https://github.com/blackoutsecure/docker-readsb/releases for full changelog."
 
       - name: Log deployment info
         run: |
