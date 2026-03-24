@@ -1,0 +1,132 @@
+name: Monitor Upstream Releases
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: 'Dispatch publish workflow even if upstream metadata is unchanged'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: wiedehopf/readsb
+  UPSTREAM_BRANCH: dev
+  UPSTREAM_VERSION_URL: https://raw.githubusercontent.com/wiedehopf/readsb/dev/version
+  TRACK_FILE: .github/upstream/readsb-dev.json
+  TARGET_WORKFLOW: dockerhub-publish.yml
+  GIT_CONFIG_USER_NAME: github-actions[bot]
+  GIT_CONFIG_USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch upstream readsb metadata and detect changes
+        id: check
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$(dirname "${TRACK_FILE}")"
+
+          # Fetch the upstream version string from the dev branch
+          upstream_version="$(curl -fsSL "${UPSTREAM_VERSION_URL}" | tr -d '[:space:]')"
+
+          # Resolve the latest commit SHA on the dev branch (no full clone needed)
+          upstream_commit="$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "refs/heads/${UPSTREAM_BRANCH}" | cut -f1)"
+
+          if [ -z "${upstream_version}" ] || [ -z "${upstream_commit}" ]; then
+            echo "ERROR: Failed to fetch upstream version or commit"
+            exit 1
+          fi
+
+          # Write upstream snapshot as sorted JSON for stable comparison
+          jq -n \
+            --arg version "${upstream_version}" \
+            --arg commit "${upstream_commit}" \
+            --arg branch "${UPSTREAM_BRANCH}" \
+            '{"branch": $branch, "version": $version, "commit": $commit}' \
+            > /tmp/upstream-readsb-dev.json
+
+          echo "upstream_version=${upstream_version}" >> "$GITHUB_OUTPUT"
+          echo "upstream_commit=${upstream_commit}" >> "$GITHUB_OUTPUT"
+
+          if [ -f "${TRACK_FILE}" ]; then
+            if cmp -s "${TRACK_FILE}" /tmp/upstream-readsb-dev.json; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update tracked metadata file
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          cp /tmp/upstream-readsb-dev.json "${TRACK_FILE}"
+
+      - name: Commit tracked metadata changes
+        if: steps.check.outputs.changed == 'true'
+        env:
+          UPSTREAM_VERSION: ${{ steps.check.outputs.upstream_version }}
+          UPSTREAM_COMMIT: ${{ steps.check.outputs.upstream_commit }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "${GIT_CONFIG_USER_NAME}"
+          git config user.email "${GIT_CONFIG_USER_EMAIL}"
+          git add "${TRACK_FILE}"
+
+          if git diff --cached --quiet; then
+            echo "No tracked metadata changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(ci): track readsb dev ${UPSTREAM_VERSION} (${UPSTREAM_COMMIT:0:7})"
+
+      - name: Push tracked metadata commit
+        if: steps.check.outputs.changed == 'true'
+        run: git push
+
+      - name: Trigger Docker publish workflow
+        if: steps.check.outputs.changed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          curl -fsSL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${REPO}/actions/workflows/${TARGET_WORKFLOW}/dispatches" \
+            -d "{\"ref\":\"${DEFAULT_BRANCH}\"}"
+
+      - name: Publish monitor summary
+        run: |
+          {
+            echo "## Upstream readsb Monitor"
+            echo ""
+            echo "- Changed: ${{ steps.check.outputs.changed }}"
+            echo "- Branch: ${UPSTREAM_BRANCH}"
+            echo "- Version: ${{ steps.check.outputs.upstream_version }}"
+            echo "- Commit: ${{ steps.check.outputs.upstream_commit }}"
+            echo "- Source: https://github.com/${UPSTREAM_REPO}/tree/${UPSTREAM_BRANCH}"
+          } >> "$GITHUB_STEP_SUMMARY"
