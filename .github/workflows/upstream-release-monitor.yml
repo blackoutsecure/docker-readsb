@@ -24,7 +24,9 @@ env:
   UPSTREAM_BRANCH: dev
   UPSTREAM_VERSION_URL: https://raw.githubusercontent.com/wiedehopf/readsb/dev/version
   TRACK_FILE: .github/upstream/readsb-dev.json
-  TARGET_WORKFLOW: dockerhub-publish.yml
+  TARGET_WORKFLOW_DOCKER: dockerhub-publish.yml
+  TARGET_WORKFLOW_BALENA: balenablock-publish.yml
+  TARGET_WORKFLOW_RELEASE: release.yml
   GIT_CONFIG_USER_NAME: github-actions[bot]
   GIT_CONFIG_USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
 
@@ -130,7 +132,7 @@ jobs:
           git push
           echo "Push complete"
 
-      - name: Trigger Docker publish workflow
+      - name: Trigger downstream workflows
         if: steps.check.outputs.changed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -139,22 +141,72 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Dispatching ${TARGET_WORKFLOW} on ${DEFAULT_BRANCH}"
-          curl -fsSL -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            "https://api.github.com/repos/${REPO}/actions/workflows/${TARGET_WORKFLOW}/dispatches" \
-            -d "{\"ref\":\"${DEFAULT_BRANCH}\"}"
-          echo "Dispatch request sent"
+          dispatch() {
+            local workflow="$1"
+            echo "Dispatching ${workflow} on ${DEFAULT_BRANCH}"
+            curl -fsSL -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${workflow}/dispatches" \
+              -d "{\"ref\":\"${DEFAULT_BRANCH}\"}"
+            echo "Dispatch sent: ${workflow}"
+          }
+
+          dispatch "${TARGET_WORKFLOW_DOCKER}"
+          dispatch "${TARGET_WORKFLOW_BALENA}"
+          dispatch "${TARGET_WORKFLOW_RELEASE}"
+          echo "All downstream workflows dispatched"
 
       - name: Publish monitor summary
+        if: always()
+        env:
+          CHANGED: ${{ steps.check.outputs.changed }}
+          UPSTREAM_VERSION: ${{ steps.check.outputs.upstream_version }}
+          UPSTREAM_COMMIT: ${{ steps.check.outputs.upstream_commit }}
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE_PUBLISH: ${{ inputs.force_publish }}
         run: |
+          changed="${CHANGED}"
+          force="${FORCE_PUBLISH:-false}"
+          triggered=false
+          trigger_reason=""
+
+          if [ "${changed}" = "true" ]; then
+            triggered=true
+            trigger_reason="upstream metadata changed"
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${force}" = "true" ]; then
+            triggered=true
+            trigger_reason="force_publish requested via workflow_dispatch"
+          fi
+
           {
             echo "## Upstream readsb Monitor"
             echo ""
-            echo "- Changed: ${{ steps.check.outputs.changed }}"
-            echo "- Branch: ${UPSTREAM_BRANCH}"
-            echo "- Version: ${{ steps.check.outputs.upstream_version }}"
-            echo "- Commit: ${{ steps.check.outputs.upstream_commit }}"
-            echo "- Source: https://github.com/${UPSTREAM_REPO}/tree/${UPSTREAM_BRANCH}"
+
+            echo "### Upstream"
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Repo | [${UPSTREAM_REPO}](https://github.com/${UPSTREAM_REPO}/tree/${UPSTREAM_BRANCH}) |"
+            echo "| Branch | \`${UPSTREAM_BRANCH}\` |"
+            echo "| Version | \`${UPSTREAM_VERSION}\` |"
+            echo "| Commit | \`${UPSTREAM_COMMIT}\` |"
+            echo ""
+
+            echo "### Run"
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Trigger | \`${EVENT_NAME}\` |"
+
+            if [ "${changed}" = "true" ]; then
+              echo "| Upstream changed | Yes — metadata updated and committed |"
+            else
+              echo "| Upstream changed | No — metadata unchanged |"
+            fi
+
+            if [ "${triggered}" = "true" ]; then
+              echo "| Downstream triggered | Yes — ${trigger_reason} |"
+              echo "| Workflows dispatched | \`${TARGET_WORKFLOW_DOCKER}\`, \`${TARGET_WORKFLOW_BALENA}\`, \`${TARGET_WORKFLOW_RELEASE}\` |"
+            else
+              echo "| Downstream triggered | No — no change detected and force_publish not set |"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
