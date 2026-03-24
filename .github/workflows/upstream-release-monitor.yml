@@ -43,11 +43,18 @@ jobs:
 
           mkdir -p "$(dirname "${TRACK_FILE}")"
 
+          echo "--- Fetching upstream metadata ---"
+          echo "Repo:   ${UPSTREAM_REPO}"
+          echo "Branch: ${UPSTREAM_BRANCH}"
+          echo "URL:    ${UPSTREAM_VERSION_URL}"
+
           # Fetch the upstream version string from the dev branch
           upstream_version="$(curl -fsSL "${UPSTREAM_VERSION_URL}" | tr -d '[:space:]')"
+          echo "Upstream version: ${upstream_version}"
 
           # Resolve the latest commit SHA on the dev branch (no full clone needed)
           upstream_commit="$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "refs/heads/${UPSTREAM_BRANCH}" | cut -f1)"
+          echo "Upstream commit:  ${upstream_commit}"
 
           if [ -z "${upstream_version}" ] || [ -z "${upstream_commit}" ]; then
             echo "ERROR: Failed to fetch upstream version or commit"
@@ -65,13 +72,24 @@ jobs:
           echo "upstream_version=${upstream_version}" >> "$GITHUB_OUTPUT"
           echo "upstream_commit=${upstream_commit}" >> "$GITHUB_OUTPUT"
 
+          echo "--- Comparing with tracked metadata ---"
           if [ -f "${TRACK_FILE}" ]; then
+            echo "Tracked file exists: ${TRACK_FILE}"
+            echo "Tracked contents:"
+            cat "${TRACK_FILE}"
+            echo ""
             if cmp -s "${TRACK_FILE}" /tmp/upstream-readsb-dev.json; then
+              echo "Result: NO CHANGE — upstream metadata matches tracked file"
               echo "changed=false" >> "$GITHUB_OUTPUT"
             else
+              echo "Result: CHANGED — upstream metadata differs from tracked file"
+              echo "Diff (tracked -> upstream):"
+              diff "${TRACK_FILE}" /tmp/upstream-readsb-dev.json || true
               echo "changed=true" >> "$GITHUB_OUTPUT"
             fi
           else
+            echo "Tracked file not found — treating as first run"
+            echo "Result: CHANGED (new)"
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -79,7 +97,10 @@ jobs:
         if: steps.check.outputs.changed == 'true'
         run: |
           set -euo pipefail
+          echo "Writing updated metadata to ${TRACK_FILE}"
           cp /tmp/upstream-readsb-dev.json "${TRACK_FILE}"
+          echo "Updated contents:"
+          cat "${TRACK_FILE}"
 
       - name: Commit tracked metadata changes
         if: steps.check.outputs.changed == 'true'
@@ -98,11 +119,16 @@ jobs:
             exit 0
           fi
 
-          git commit -m "chore(ci): track readsb dev ${UPSTREAM_VERSION} (${UPSTREAM_COMMIT:0:7})"
+          COMMIT_MSG="chore(ci): track readsb dev ${UPSTREAM_VERSION} (${UPSTREAM_COMMIT:0:7})"
+          echo "Committing: ${COMMIT_MSG}"
+          git commit -m "${COMMIT_MSG}"
 
       - name: Push tracked metadata commit
         if: steps.check.outputs.changed == 'true'
-        run: git push
+        run: |
+          echo "Pushing commit to origin"
+          git push
+          echo "Push complete"
 
       - name: Trigger Docker publish workflow
         if: steps.check.outputs.changed == 'true' || (github.event_name == 'workflow_dispatch' && inputs.force_publish)
@@ -113,11 +139,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          echo "Dispatching ${TARGET_WORKFLOW} on ${DEFAULT_BRANCH}"
           curl -fsSL -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             "https://api.github.com/repos/${REPO}/actions/workflows/${TARGET_WORKFLOW}/dispatches" \
             -d "{\"ref\":\"${DEFAULT_BRANCH}\"}"
+          echo "Dispatch request sent"
 
       - name: Publish monitor summary
         run: |
