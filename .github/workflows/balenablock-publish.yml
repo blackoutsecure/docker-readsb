@@ -7,7 +7,7 @@ on:
       - main
     paths:
       - Dockerfile
-      - balena-compose.yml
+      - docker-compose.yml
       - balena.yml
       - .dockerignore
       - root/**
@@ -17,7 +17,7 @@ on:
       - main
     paths:
       - Dockerfile
-      - balena-compose.yml
+      - docker-compose.yml
       - balena.yml
       - .dockerignore
       - root/**
@@ -108,8 +108,7 @@ jobs:
             --exclude='.git' \
             --exclude='.balena-source' \
             ./ .balena-source/
-          cp .balena-source/balena-compose.yml .balena-source/docker-compose.yml
-          echo "Using balena-compose.yml for block deployment"
+          echo "Using docker-compose.yml for block deployment"
           grep "^version:" .balena-source/docker-compose.yml
           grep "^version:" .balena-source/balena.yml
 

@@ -14,8 +14,7 @@ README*.md
 readme-vars.yml
 .editorconfig
 
-# Build and compose files
-# Keep compose and balena metadata files in context for Balena block builds.
+# Build and compose files (docker-compose.yml and balena.yml kept in context for Balena block builds)
 
 # Development and examples
 debian/

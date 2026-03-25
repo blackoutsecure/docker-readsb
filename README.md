@@ -215,7 +215,7 @@ docker run -d \
 
 ### Balena Deployment
 
-This image can be deployed to Balena-powered IoT devices using the included `balena-compose.yml` file:
+This image can be deployed to Balena-powered IoT devices using the included `docker-compose.yml` file (which contains the required Balena labels):
 
 - Balena block listing: [https://hub.balena.io/blocks/2351129/readsb](https://hub.balena.io/blocks/2351129/readsb)
 

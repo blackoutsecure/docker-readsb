@@ -14,6 +14,12 @@ services:
       - json:/run/readsb
     devices:
       - /dev/bus/usb:/dev/bus/usb
+    labels:
+      io.balena.features.kernel-modules: '1'
+      io.balena.features.firmware: '1'
+      io.balena.features.dbus: '1'
+      io.balena.features.supervisor-api: '1'
+      io.balena.features.balena-api: '1'
     ports:
       - "30001:30001"  # Raw protocol output (TCP)
       - "30002:30002"  # Raw protocol input/output (TCP)
@@ -31,14 +37,12 @@ services:
       - CHOWN
     security_opt:
       - no-new-privileges:true
-    restart: unless-stopped
     tmpfs:
       - /tmp
       - /run:exec
     read_only: false
+    restart: unless-stopped
 
 volumes:
   config:
-    driver: local
   json:
-    driver: local
