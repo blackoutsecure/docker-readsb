@@ -18,6 +18,7 @@ on:
       - .dockerignore
       - docker-compose.yml
       - root/**
+      - README.md
       - .github/workflows/dockerhub-publish.yml
   workflow_dispatch:
 
@@ -317,3 +318,20 @@ jobs:
           docker buildx imagetools inspect "${IMAGE_REF}:latest"
           docker buildx imagetools inspect "${IMAGE_REF}:${VERSION}"
           docker buildx imagetools inspect "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}"
+
+  update-description:
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update Docker Hub Description
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          short-description: ${{ github.event.repository.description }}
+          enable-url-completion: true
