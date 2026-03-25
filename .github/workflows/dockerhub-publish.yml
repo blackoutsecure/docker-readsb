@@ -320,6 +320,7 @@ jobs:
           docker buildx imagetools inspect "${IMAGE_REF}:${VERSION}-${SHORT_VCS_REF}"
 
   update-description:
+    needs: manifest
     if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
