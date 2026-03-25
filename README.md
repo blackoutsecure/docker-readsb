@@ -564,7 +564,7 @@ Container patterns: [LinuxServer.io](https://linuxserver.io/)
 
 This project is licensed under the GNU General Public License v3.0 or later - see the LICENSE file for details.
 
-The readsb application itself is also licensed under GPL-3.0. For more information, see the [readsb repository](https://github.com/wiedehopf/readsb).
+The readsb application itself is also licensed under GPL-3.0-or-later. For more information, see the [readsb repository](https://github.com/wiedehopf/readsb).
 
 ---
 
