@@ -32,7 +32,7 @@ concurrency:
 env:
   REGISTRY: docker.io
   BASE_IMAGE_REGISTRY: ghcr.io
-  DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+  DOCKERHUB_NAMESPACE: ${{ secrets.DOCKERHUB_NAMESPACE }}
   IMAGE_NAME: readsb
   REPO_URL: ${{ github.server_url }}/${{ github.repository }}
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
@@ -217,7 +217,7 @@ jobs:
     timeout-minutes: 30
     env:
       REGISTRY: docker.io
-      DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_NAMESPACE: ${{ secrets.DOCKERHUB_NAMESPACE }}
       IMAGE_NAME: readsb
       READSB_REPO_URL: https://github.com/wiedehopf/readsb
       READSB_REPO_BRANCH: dev
