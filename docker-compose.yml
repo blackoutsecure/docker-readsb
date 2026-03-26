@@ -2,9 +2,7 @@ version: '2.4'
 
 services:
   readsb:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: blackoutsecure/readsb:latest
     container_name: readsb
     environment:
       TZ: Etc/UTC

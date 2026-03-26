@@ -24,8 +24,7 @@ env:
   UPSTREAM_BRANCH: dev
   UPSTREAM_VERSION_URL: https://raw.githubusercontent.com/wiedehopf/readsb/dev/version
   TRACK_FILE: .github/upstream/readsb-dev.json
-  TARGET_WORKFLOW_DOCKER: dockerhub-publish.yml
-  TARGET_WORKFLOW_BALENA: balenablock-publish.yml
+  TARGET_WORKFLOW_PUBLISH: publish.yml
   TARGET_WORKFLOW_RELEASE: release.yml
   GIT_CONFIG_USER_NAME: github-actions[bot]
   GIT_CONFIG_USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
@@ -152,8 +151,7 @@ jobs:
             echo "Dispatch sent: ${workflow}"
           }
 
-          dispatch "${TARGET_WORKFLOW_DOCKER}"
-          dispatch "${TARGET_WORKFLOW_BALENA}"
+          dispatch "${TARGET_WORKFLOW_PUBLISH}"
           dispatch "${TARGET_WORKFLOW_RELEASE}"
           echo "All downstream workflows dispatched"
 

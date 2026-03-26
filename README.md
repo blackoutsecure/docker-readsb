@@ -8,8 +8,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/blackoutsecure/readsb?style=flat-square&color=E7931D&logo=docker&logoColor=FFFFFF)](https://hub.docker.com/r/blackoutsecure/readsb)
 [![GitHub Release](https://img.shields.io/github/release/blackoutsecure/docker-readsb.svg?style=flat-square&color=E7931D&logo=github&logoColor=FFFFFF)](https://github.com/blackoutsecure/docker-readsb/releases)
 [![Release CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/release.yml?style=flat-square&label=release%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/release.yml)
-[![Docker Hub CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/dockerhub-publish.yml?style=flat-square&label=docker%20hub%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/dockerhub-publish.yml)
-[![Balena CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/balenablock-publish.yml?style=flat-square&label=balena%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/balenablock-publish.yml)
+[![Publish CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/publish.yml?style=flat-square&label=publish%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/publish.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
 Unofficial community image for [readsb](https://github.com/wiedehopf/readsb), built with [LinuxServer.io](https://linuxserver.io/) style container patterns (s6, hardened defaults, practical runtime options) for RTL-SDR ADS-B workloads.
