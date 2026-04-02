@@ -54,7 +54,7 @@ get_feed_connector() {
 get_feed_connector_secondary() {
     local profile="$1"
     case "${profile}" in
-        adsbexchange)   echo "feed2.adsbexchange.com,30004,beast_reduce_out" ;;
+        adsbexchange)   echo "feed2.adsbexchange.com,64004,beast_reduce_out" ;;
         *)              echo "" ;;
     esac
 }

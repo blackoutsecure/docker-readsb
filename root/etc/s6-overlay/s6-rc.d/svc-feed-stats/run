@@ -139,31 +139,23 @@ while true; do
         fi
 
         # Build the stats payload with jq
-        # Note: readsb RSSI values are negative dBFS (e.g. -3.2, -15.7).
-        # Filter with select(. < 0) to keep valid readings and exclude 0/null.
-        _feed_lat="${FEED_LAT:-}"
-        _feed_lon="${FEED_LON:-}"
+        # Match the official adsbexchange-stats/json-status jq payload format.
+        # Official applies select(. >=0) to the whole rssi array (a no-op),
+        # effectively averaging all rssi values. We replicate that behavior.
         if ! jq -c \
             --arg STATUS "${status}" \
             --arg UUID "${UUID}" \
-            --arg LAT "${_feed_lat}" \
-            --arg LON "${_feed_lon}" \
             '
             .uuid=$UUID
             | .v=$STATUS
-            | .lat=(if $LAT == "" then null else ($LAT | tonumber) end)
-            | .lon=(if $LON == "" then null else ($LON | tonumber) end)
             | .rssi=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi // empty] | map(select(. < 0))
-                    | if length == 0 then [0] else . end
+                else ([.aircraft[].rssi] | select(. >= 0)
                     | add / length | floor) end)
             | ."rssi-min"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi // empty] | map(select(. < 0))
-                    | if length == 0 then [0] else . end
+                else ([.aircraft[].rssi] | select(. >= 0)
                     | min | floor) end)
             | ."rssi-max"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi // empty] | map(select(. < 0))
-                    | if length == 0 then [0] else . end
+                else ([.aircraft[].rssi] | select(. >= 0)
                     | max | floor) end)
             ' < "${TEMP_DIR}/tmp.json" > "${TEMP_DIR}/new.json" 2>/dev/null
         then
@@ -176,15 +168,18 @@ while true; do
         sleep 0.314
 
         # Upload aircraft data to ADSBx
+        # Match official adsbexchange-stats/json-status curl exactly:
+        # - Header uses "Content_Encoding" (underscore, not hyphen) per upstream
+        # - No Content-Type header
+        # - Data via stdin redirect (--data-binary @-)
         _curl_body=""
         _curl_rc=0
         _upload_size=$(stat --printf="%s" "${TEMP_DIR}/upload.gz" 2>/dev/null || echo "?")
         _curl_body=$(curl -m ${MAX_CURL_TIME} -sS -o - -w "\n%{http_code}" -X POST \
             -H "adsbx-uuid: ${UUID}" \
-            -H "Content-Type: application/json" \
-            -H "Content-Encoding: gzip" \
-            --data-binary @"${TEMP_DIR}/upload.gz" \
-            "${REMOTE_URL}" 2>&1) || _curl_rc=$?
+            -H "Content_Encoding: gzip" \
+            --data-binary @- \
+            "${REMOTE_URL}" < "${TEMP_DIR}/upload.gz" 2>&1) || _curl_rc=$?
         _http_code="${_curl_body##*$'\n'}"
         _resp_body="${_curl_body%$'\n'*}"
         if [[ ${_curl_rc} -ne 0 ]]; then
