@@ -6,8 +6,6 @@ services:
     container_name: readsb
     environment:
       TZ: Etc/UTC
-      PUID: '1000'
-      PGID: '1000'
       READSB_ARGS: '--net --device-type rtlsdr'
       READSB_AUTO_LOCATION: 'true'
     volumes:

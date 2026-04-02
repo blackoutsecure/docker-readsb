@@ -68,8 +68,6 @@ docker run -d \
   --name=readsb \
   --restart unless-stopped \
   -e TZ=Etc/UTC \
-  -e PUID=1000 \
-  -e PGID=1000 \
   -e READSB_ARGS="--net --device-type rtlsdr" \
   -p 30001:30001 \
   -p 30002:30002 \
@@ -151,8 +149,6 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - PUID=1000
-      - PGID=1000
       - READSB_ARGS=--net --device-type rtlsdr
     volumes:
       - /path/to/readsb/config:/config
@@ -184,8 +180,6 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - PUID=1000
-      - PGID=1000
       - READSB_ARGS=--net --lon <longitude> --lat <latitude>
     volumes:
       - /path/to/readsb/config:/config
@@ -215,8 +209,6 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - PUID=1000
-      - PGID=1000
       - READSB_ARGS=--net --device-type rtlsdr
       - FEED_UAT_INPUT=dump978:30978
       # - READSB_DEVICE=00001090  # pin 1090 dongle by serial
@@ -246,8 +238,6 @@ services:
     container_name: dump978
     environment:
       - TZ=Etc/UTC
-      - PUID=1000
-      - PGID=1000
       - DUMP978_SDR=driver=rtlsdr,serial=00000978
       - DUMP978_PROFILE=adsbexchange
     volumes:
@@ -282,8 +272,6 @@ volumes:
 docker run -d \
   --name=readsb \
   -e TZ=Etc/UTC \
-  -e PUID=1000 \
-  -e PGID=1000 \
   -e READSB_ARGS="--net --device-type rtlsdr" \
   -p 30001:30001 \
   -p 30002:30002 \
@@ -330,9 +318,8 @@ For deployment via the web interface, use the deploy button in this repository. 
 | :----: | --- | :---: |
 | `-e TZ=Etc/UTC` | Timezone ([TZ database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)) | Optional |
 | `-e READSB_ARGS=` | Additional arguments for readsb | Optional |
-| `-e READSB_USER=abc` | Runtime user (default: `abc`). Set to `root` only if USB permissions require it. | Optional |
-| `-e PUID=1000` | User ID for file ownership (used when `READSB_USER=abc`) | Optional |
-| `-e PGID=1000` | Group ID for file ownership (used when `READSB_USER=abc`) | Optional |
+| `-e PUID=1000` | User ID for file ownership (LinuxServer.io base image standard) | Optional |
+| `-e PGID=1000` | Group ID for file ownership (LinuxServer.io base image standard) | Optional |
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
 | `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
 | `-e FEED_UUID=` | Feeder UUID (auto-generated on first run, persisted in `/config/feed-uuid`) | Optional |
@@ -426,16 +413,14 @@ By default, this container runs as the LSIO `abc` user (non-root) for better sec
 
 **Non-root mode (default, recommended):**
 
-- `READSB_USER` defaults to `abc` (set in the Dockerfile)
-- Set `PUID` and `PGID` to match your host user (e.g. `1000:1000`)
-- If `PUID`/`PGID` are omitted, the LSIO base image keeps `abc` at UID/GID `911`
-- RTL-SDR USB access works via the `devices:` mapping
+- readsb runs as the `abc` user by default
+- RTL-SDR USB device permissions are automatically fixed during container init — no manual configuration needed
+- Set `PUID` and `PGID` only if you need file ownership to match a specific host user
 
 **Root mode (fallback):**
 
-- Set `READSB_USER=root`
-- No `PUID` or `PGID` needed
-- Only use if non-root mode has USB permission issues
+- Set `READSB_USER=root` if needed for other reasons
+- USB permissions are handled automatically regardless of user
 
 ---
 
@@ -480,7 +465,7 @@ For all available options, see the [readsb documentation](https://github.com/wie
 ### Supported Modes
 
 - **Read-only filesystem**: Supported when JSON and temp directories are mounted to volumes or tmpfs
-- **Non-root user**: Supported via `READSB_USER` (requires device permission setup for RTL-SDR access)
+- **Non-root user**: Supported by default — RTL-SDR USB permissions are fixed automatically during init
 
 ### SDR Device Selection
 
@@ -805,17 +790,17 @@ docker stats readsb --no-stream
 
 ### Device permission errors (non-root mode)
 
-If running with `READSB_USER` set to a non-root user:
+RTL-SDR USB device permissions are fixed automatically during container init. If you still see permission errors:
 
 ```bash
-# Find the numeric user/group ID
-docker exec readsb id
+# Verify RTL-SDR devices are visible inside the container
+docker exec readsb lsusb | grep -i realtek
 
-# Grant USB access to the group (host-side)
-sudo usermod -a -G plugdev <username>
+# Check device permissions were applied
+docker exec readsb ls -la /dev/bus/usb/*/*
 ```
 
-Then restart container with proper `PUID` and `PGID` environment variables.
+**If devices are not visible**, ensure the `devices:` mapping is correct in your compose file. On some hosts, you may need to restart the container after plugging in the dongle.
 
 ### Port conflicts
 

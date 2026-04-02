@@ -142,3 +142,16 @@ if enumerate_sdr_dongles; then
 else
     log_warn "SDR enumeration failed (lsusb not found or no USB devices)"
 fi
+
+# ── RTL-SDR USB device permissions ────────────────────────────────────────────
+# The abc user cannot access /dev/bus/usb devices (owned by root).
+# Fix permissions on RTL-SDR device nodes so readsb can open them as non-root.
+if [[ "${readsb_user}" != "root" ]] && command -v lsusb >/dev/null 2>&1; then
+    while IFS= read -r devpath; do
+        if [[ -c "${devpath}" ]]; then
+            chmod 0666 "${devpath}"
+            log_info "fixed USB permissions: ${devpath}"
+        fi
+    done < <(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' | \
+             sed -nE 's|^Bus ([0-9]+) Device ([0-9]+):.*|/dev/bus/usb/\1/\2|p')
+fi

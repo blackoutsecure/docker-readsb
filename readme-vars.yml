@@ -29,9 +29,9 @@ param_env_vars:
 # optional env variables
 opt_param_usage_include_env: true
 opt_param_env_vars:
-  - {env_var: "READSB_USER", env_value: "abc", desc: "Runtime user (default: abc). Set to 'root' only if USB permissions require it."}
-  - {env_var: "PUID", env_value: "1000", desc: "User ID for file ownership (used when READSB_USER=abc)"}
-  - {env_var: "PGID", env_value: "1000", desc: "Group ID for file ownership (used when READSB_USER=abc)"}
+  - {env_var: "READSB_USER", env_value: "abc", desc: "Runtime user (default: abc). USB permissions are fixed automatically during init."}
+  - {env_var: "PUID", env_value: "1000", desc: "User ID for file ownership (LinuxServer.io base image standard)"}
+  - {env_var: "PGID", env_value: "1000", desc: "Group ID for file ownership (LinuxServer.io base image standard)"}
   - {env_var: "FEED_PROFILES", env_value: "", desc: "Comma-separated list of exchanges to feed (e.g. adsbexchange,adsb-fi). Defaults to adsbexchange if unset."}
   - {env_var: "FEED_UUID", env_value: "", desc: "Feeder UUID (auto-generated on first run, persisted in /config/feed-uuid)"}
   - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable ADSBx stats upload (only when adsbexchange is in FEED_PROFILES)"}
@@ -88,4 +88,4 @@ readonly_message: |
 # non-root support
 nonroot_supported: true
 nonroot_message: |
-  Non-root operation is supported via `READSB_USER`. RTL-SDR access may require additional device permissions.
+  Non-root operation is the default. RTL-SDR USB device permissions are fixed automatically during container init.
