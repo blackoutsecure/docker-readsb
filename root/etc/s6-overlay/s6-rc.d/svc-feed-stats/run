@@ -12,48 +12,56 @@ parse_feed_profiles
 
 feed_stats_enabled=${FEED_STATS_ENABLED:-true}
 
-# Self-disable: only run when adsbexchange profile is active AND stats are enabled
-if ! has_feed_profile "adsbexchange" || [[ "${feed_stats_enabled,,}" != "true" ]]; then
-    log_info "Stats disabled (profiles=${FEED_PROFILES:-none}, stats=${feed_stats_enabled}). Sleeping."
+# Self-disable: only sleep when stats are explicitly disabled
+if [[ "${feed_stats_enabled,,}" != "true" ]]; then
+    log_info "Stats disabled (stats=${feed_stats_enabled}). Sleeping."
     exec sleep infinity
 fi
 
 # Configuration
-REMOTE_URL="https://adsbexchange.com/api/receive/"
 JSON_DIR="${READSB_RUN_DIR:-/run/readsb}"
 JSON_FILE="${JSON_DIR}/aircraft.json"
-# Use adsbexchange-specific UUID
-UUID_FILE="/config/feed-uuid-adsbexchange"
-TEMP_DIR="/run/adsbexchange-stats"
+TEMP_DIR="/run/readsb-stats"
 WAIT_TIME=5
-MAX_CURL_TIME=10
 AGE_COMPLAIN=30
 AGE_INTERVAL=1800
 
+# ADSBx upload settings (only used when adsbexchange profile is active)
+REMOTE_URL="https://adsbexchange.com/api/receive/"
+UUID_FILE="/config/feed-uuid-adsbexchange"
+MAX_CURL_TIME=10
+adsbx_upload=false
+
 mkdir -p "${TEMP_DIR}"
 
-# Wait for UUID file
-loop=0
-while [[ ! -f "${UUID_FILE}" ]]; do
-    loop=$((loop + 1))
-    if [[ ${loop} -gt 12 ]]; then
-        log_fatal "UUID file ${UUID_FILE} not found after 60s. Exiting."
-        exit 1
-    fi
-    sleep 5
-done
+# Enable ADSBx upload only when adsbexchange profile is active and UUID is valid
+if has_feed_profile "adsbexchange"; then
+    loop=0
+    while [[ ! -f "${UUID_FILE}" ]]; do
+        loop=$((loop + 1))
+        if [[ ${loop} -gt 12 ]]; then
+            log_warn "UUID file ${UUID_FILE} not found after 60s. ADSBx upload disabled."
+            break
+        fi
+        sleep 5
+    done
 
-UUID=$(tr -d '[:space:]' < "${UUID_FILE}")
-if ! [[ ${UUID} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
-    log_fatal "Invalid UUID in ${UUID_FILE}: '${UUID}'. Exiting."
-    exit 1
+    if [[ -f "${UUID_FILE}" ]]; then
+        UUID=$(tr -d '[:space:]' < "${UUID_FILE}")
+        if [[ ${UUID} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
+            adsbx_upload=true
+            log_info "ADSBx upload enabled -- UUID=${UUID}"
+        else
+            log_warn "Invalid UUID in ${UUID_FILE}: '${UUID}'. ADSBx upload disabled."
+        fi
+    fi
 fi
 
-log_info "Starting ADSBx stats upload -- UUID=${UUID}, JSON_DIR=${JSON_DIR}"
-
-# Periodic console stats interval (seconds)
-STATS_LOG_INTERVAL=300
+# Periodic console stats interval (seconds) -- default 2 minutes
+STATS_LOG_INTERVAL=${STATS_LOG_INTERVAL:-120}
 last_stats_log=0
+
+log_info "Starting stats service (interval=${STATS_LOG_INTERVAL}s, adsbx_upload=${adsbx_upload}, JSON_DIR=${JSON_DIR})"
 
 # Wait for JSON file to appear
 stat_count=0
@@ -95,6 +103,17 @@ while true; do
         old_age=${AGE_COMPLAIN}
     fi
 
+    # Determine if we need to snapshot JSON this iteration
+    stats_due=false
+    if [[ $(( now - last_stats_log )) -ge ${STATS_LOG_INTERVAL} ]]; then
+        stats_due=true
+    fi
+
+    # Skip JSON snapshot when neither stats nor upload need it
+    if [[ "${stats_due}" != "true" && "${adsbx_upload}" != "true" ]]; then
+        continue
+    fi
+
     # Snapshot the JSON file for processing
     rm -f "${TEMP_DIR}/tmp.json" "${TEMP_DIR}/new.json"
     if ! cp "${JSON_FILE}" "${TEMP_DIR}/tmp.json" 2>/dev/null; then
@@ -102,39 +121,8 @@ while true; do
         continue
     fi
 
-    # Read Raspberry Pi throttle status if available
-    status=""
-    if throttle=$(vcgencmd get_throttled 2>/dev/null | tr -d '"'); then
-        status="${throttle#*=}"
-    fi
-
-    # Build the stats payload with jq
-    if ! jq -c \
-        --arg STATUS "${status}" \
-        --arg UUID "${UUID}" \
-        '
-        | ."uuid"=$UUID
-        | ."v"=$STATUS
-        | ."rssi"=(if (.aircraft | length <= 0) then 0
-            else ([.aircraft[].rssi] | map(select(. >= 0))
-                | if length == 0 then [0] else . end
-                | add / length | floor) end)
-        | ."rssi-min"=(if (.aircraft | length <= 0) then 0
-            else ([.aircraft[].rssi] | map(select(. >= 0))
-                | if length == 0 then [0] else . end
-                | min | floor) end)
-        | ."rssi-max"=(if (.aircraft | length <= 0) then 0
-            else ([.aircraft[].rssi] | map(select(. >= 0))
-                | if length == 0 then [0] else . end
-                | max | floor) end)
-        ' < "${TEMP_DIR}/tmp.json" > "${TEMP_DIR}/new.json" 2>/dev/null
-    then
-        sleep 15
-        continue
-    fi
-
-    # Periodic console stats (every STATS_LOG_INTERVAL seconds)
-    if [[ $(( now - last_stats_log )) -ge ${STATS_LOG_INTERVAL} ]]; then
+    # ── Periodic console stats (every STATS_LOG_INTERVAL seconds) ─────────────
+    if [[ "${stats_due}" == "true" ]]; then
         _ac_count=$(jq -r '.aircraft | length // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
         _ac_with_pos=$(jq -r '[.aircraft[] | select(.lat != null)] | length // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
         _msgs=$(jq -r '.messages // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
@@ -142,16 +130,50 @@ while true; do
         last_stats_log=${now}
     fi
 
-    sleep 0.314
-    gzip -c < "${TEMP_DIR}/new.json" > "${TEMP_DIR}/upload.gz"
-    sleep 0.314
+    # ── ADSBx upload (only when adsbexchange profile is active) ───────────────
+    if [[ "${adsbx_upload}" == "true" ]]; then
+        # Read Raspberry Pi throttle status if available
+        status=""
+        if throttle=$(vcgencmd get_throttled 2>/dev/null | tr -d '"'); then
+            status="${throttle#*=}"
+        fi
 
-    # Upload to ADSBx
-    if ! curl -m ${MAX_CURL_TIME} -sS -X POST \
-        -H "adsbx-uuid: ${UUID}" \
-        -H "Content-Encoding: gzip" \
-        --data-binary @"${TEMP_DIR}/upload.gz" \
-        "${REMOTE_URL}" 2>&1; then
-        sleep $(( 5 + RANDOM % 15 ))
+        # Build the stats payload with jq
+        if ! jq -c \
+            --arg STATUS "${status}" \
+            --arg UUID "${UUID}" \
+            '
+            | ."uuid"=$UUID
+            | ."v"=$STATUS
+            | ."rssi"=(if (.aircraft | length <= 0) then 0
+                else ([.aircraft[].rssi] | map(select(. >= 0))
+                    | if length == 0 then [0] else . end
+                    | add / length | floor) end)
+            | ."rssi-min"=(if (.aircraft | length <= 0) then 0
+                else ([.aircraft[].rssi] | map(select(. >= 0))
+                    | if length == 0 then [0] else . end
+                    | min | floor) end)
+            | ."rssi-max"=(if (.aircraft | length <= 0) then 0
+                else ([.aircraft[].rssi] | map(select(. >= 0))
+                    | if length == 0 then [0] else . end
+                    | max | floor) end)
+            ' < "${TEMP_DIR}/tmp.json" > "${TEMP_DIR}/new.json" 2>/dev/null
+        then
+            sleep 15
+            continue
+        fi
+
+        sleep 0.314
+        gzip -c < "${TEMP_DIR}/new.json" > "${TEMP_DIR}/upload.gz"
+        sleep 0.314
+
+        # Upload to ADSBx
+        if ! curl -m ${MAX_CURL_TIME} -sS -X POST \
+            -H "adsbx-uuid: ${UUID}" \
+            -H "Content-Encoding: gzip" \
+            --data-binary @"${TEMP_DIR}/upload.gz" \
+            "${REMOTE_URL}" 2>&1; then
+            sleep $(( 5 + RANDOM % 15 ))
+        fi
     fi
 done

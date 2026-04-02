@@ -105,9 +105,9 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     done
 
     # Create stats temp directory
-    mkdir -p /run/adsbexchange-stats
+    mkdir -p /run/readsb-stats
     if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
-        lsiown -R "${readsb_user}:${readsb_user}" /run/adsbexchange-stats
+        lsiown -R "${readsb_user}:${readsb_user}" /run/readsb-stats
     fi
 fi
 

@@ -90,7 +90,6 @@ RUN apk add --no-cache \
         zstd \
         curl \
         jq \
-        gzip \
         rtl-sdr \
         usbutils
 
@@ -103,6 +102,11 @@ ENV LD_PRELOAD="/usr/lib/libjemalloc.so.2" \
 RUN if [ -f /usr/local/share/readsb/build-metadata.env ]; then . /usr/local/share/readsb/build-metadata.env; fi && \
     echo "Linuxserver.io version:- ${VERSION:-unknown} Build-date:- ${BUILD_DATE:-unknown} Revision:- ${VCS_REF:-unknown}" > /build_version && \
     find /etc/s6-overlay/s6-rc.d -type f \( -name run -o -name finish -o -name check \) -exec chmod 0755 {} + && \
+    # Disable base image services not needed by this container:
+    # - svc-cron: no cron jobs; if crontabs exist from base image, crond starts and fills logs
+    # - init-crontab-config: sets up crontabs that would trigger svc-cron
+    rm -f /etc/s6-overlay/s6-rc.d/user/contents.d/svc-cron \
+          /etc/s6-overlay/s6-rc.d/user/contents.d/init-crontab-config && \
     rm -rf /tmp/* /var/tmp/* /var/cache/apk/*
 
 EXPOSE 30001 30002 30003 30004 30005 30104

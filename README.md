@@ -325,7 +325,8 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
 | `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
 | `-e FEED_UUID_ADSBEXCHANGE=` | Per-profile UUID override. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Stored in `/config/feed-uuid-<profile>`. | Optional |
-| `-e FEED_STATS_ENABLED=true` | Enable ADSBx stats upload (requires `adsbexchange` in `FEED_PROFILES`) | Optional |
+| `-e FEED_STATS_ENABLED=true` | Enable periodic console stats logging and ADSBx stats upload (upload requires `adsbexchange` in `FEED_PROFILES`) | Optional |
+| `-e STATS_LOG_INTERVAL=120` | Console stats logging interval in seconds (default: `120` = every 2 minutes) | Optional |
 | `-e FEED_UAT_INPUT=` | UAT 978 MHz source as `host:port` (e.g. `dump978:30978`). Requires [docker-dump978](https://github.com/blackoutsecure/docker-dump978) sidecar. US only. | Optional |
 | `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_ARGS`. | Optional |
 | `-e FEED_LON=` | Receiver longitude (e.g. `-122.3321`). Fallback if `--lon` not in `READSB_ARGS`. | Optional |
@@ -437,7 +438,7 @@ The container runs readsb with network support and automatic RTL-SDR device dete
 - **Aircraft Database**: Includes [tar1090 aircraft database](https://github.com/wiedehopf/tar1090-db) for accurate identification
 - **Automatic Gain Control**: Enabled by default for rtlsdr devices (configurable via `READSB_ARGS`)
 - **Docker HEALTHCHECK**: Built-in health monitoring — marks container unhealthy if `aircraft.json` stops updating
-- **Periodic Stats**: Logs aircraft count, positions, and message totals every 5 minutes
+- **Periodic Stats**: Logs aircraft count, positions, and message totals every 2 minutes (configurable via `STATS_LOG_INTERVAL`)
 - **Feed Status URLs**: Init logs include verification URLs for each active feed profile
 - **RTL-SDR Tools**: `rtl_test` and `rtl_eeprom` available inside the container for diagnostics and dongle tagging
 
@@ -515,7 +516,8 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 |---|---|---|
 | `FEED_PROFILES` | `adsbexchange` | Comma-separated list of exchanges to feed. Options: `adsbexchange`, `adsb-fi`, `airplaneslive`, `planewatch`, `opensky`, `flyitalyadsb`, `adsbhub`, `radarplane`. Defaults to `adsbexchange` if unset. Set to empty string to disable feeding. |
 | `FEED_UUID_<PROFILE>` | (auto-generated) | Per-profile UUID. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSBEXCHANGE`, `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Auto-generated on first run and stored in `/config/feed-uuid-<profile>`. |
-| `FEED_STATS_ENABLED` | `true` | Enable stats upload to ADS-B Exchange (only used when `adsbexchange` is in `FEED_PROFILES`). |
+| `FEED_STATS_ENABLED` | `true` | Enable periodic console stats logging and ADSBx stats upload. Stats logging works with all profiles; ADSBx upload only activates when `adsbexchange` is in `FEED_PROFILES`. |
+| `STATS_LOG_INTERVAL` | `120` | Console stats logging interval in seconds. Default is `120` (every 2 minutes). Set to e.g. `60` for 1 min or `300` for 5 min. |
 | `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
 | `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_ARGS`. |
 | `FEED_LON` | (empty) | Receiver longitude in decimal degrees. Used as fallback if `--lon` is not in `READSB_ARGS`. |
@@ -711,8 +713,8 @@ All log output uses syslog format so you can identify the source and severity of
 2026-04-02T11:38:21Z svc-readsb[decoder]: *8daa4b32584385ef2a7603346e29;
 2026-04-02T11:38:21Z svc-readsb[decoder]: hex:  aa4b32   CRC: 000000 fixed bits: 0 decode: ok
 2026-04-02T11:38:21Z svc-readsb[decoder]: RSSI:    -22.0 dBFS   reduce_forward: 1
-2026-04-02T11:38:22Z svc-feed-stats[info]: Starting ADSBx stats upload -- UUID=12345678-...
-2026-04-02T11:43:22Z svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
+2026-04-02T11:38:22Z svc-feed-stats[info]: Starting stats service (interval=120s, adsbx_upload=true, JSON_DIR=/run/readsb)
+2026-04-02T11:40:22Z svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
 2026-04-02T11:38:52Z svc-feed-stats[warn]: /run/readsb/aircraft.json not updated in 45s.
 ```
 
@@ -720,7 +722,7 @@ All log output uses syslog format so you can identify the source and severity of
 |---|---|
 | `init-readsb-config` | One-shot init: per-profile UUID generation, feed profile setup, USB permissions, geolocation |
 | `svc-readsb` | Main readsb decoder service (startup config + decoder output) |
-| `svc-feed-stats` | ADSBExchange stats upload loop + periodic console stats (every 5 min) |
+| `svc-feed-stats` | Periodic console stats (every 2 min by default) + ADSBx stats upload when adsbexchange profile is active |
 
 | Priority | Meaning |
 |---|---|
@@ -877,11 +879,13 @@ docker exec readsb s6-svstat /run/service/svc-feed-stats
 
 ### Periodic Console Stats
 
-When the `adsbexchange` feed profile is active, `svc-feed-stats` logs a summary every 5 minutes:
+`svc-feed-stats` logs a summary every 2 minutes by default (configurable via `STATS_LOG_INTERVAL`). Stats logging works with **all feed profiles** — it is not limited to adsbexchange:
 
 ```
 svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
 ```
+
+To change the interval, set `STATS_LOG_INTERVAL` to the desired number of seconds (e.g. `60` for every minute, `300` for every 5 minutes). To disable stats logging entirely, set `FEED_STATS_ENABLED=false`.
 
 ### Quick Status Commands
 

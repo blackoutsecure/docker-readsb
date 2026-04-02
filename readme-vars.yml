@@ -34,7 +34,8 @@ opt_param_env_vars:
   - {env_var: "PGID", env_value: "1000", desc: "Group ID for file ownership (LinuxServer.io base image standard)"}
   - {env_var: "FEED_PROFILES", env_value: "", desc: "Comma-separated list of exchanges to feed (e.g. adsbexchange,adsb-fi). Defaults to adsbexchange if unset."}
   - {env_var: "FEED_UUID_<PROFILE>", env_value: "", desc: "Per-profile UUID. Use uppercase profile name with hyphens as underscores (e.g. FEED_UUID_ADSBEXCHANGE, FEED_UUID_ADSB_FI). Auto-generated on first run, stored in /config/feed-uuid-<profile>."}
-  - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable ADSBx stats upload (only when adsbexchange is in FEED_PROFILES)"}
+  - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable periodic console stats logging and ADSBx stats upload. Stats logging works with all profiles; ADSBx upload only activates when adsbexchange is in FEED_PROFILES."}
+  - {env_var: "STATS_LOG_INTERVAL", env_value: "120", desc: "Console stats logging interval in seconds. Default is 120 (every 2 minutes). Set to e.g. 60 for 1 min or 300 for 5 min."}
   - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978). Requires blackoutsecure/dump978 sidecar."}
   - {env_var: "READSB_DEVICE", env_value: "", desc: "Manual: RTL-SDR device index or serial for 1090 MHz (overrides auto-detection)"}
   - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_ARGS)"}
@@ -77,7 +78,7 @@ app_setup_block: |
 
   **Health Monitoring**: The image includes a Docker `HEALTHCHECK` that verifies `aircraft.json` freshness every 30 seconds. Use `docker inspect --format='{{.State.Health.Status}}' readsb` to check status.
 
-  **Periodic Stats**: When the `adsbexchange` feed profile is active, `svc-feed-stats` logs a summary every 5 minutes including aircraft tracked, positions, and message count.
+  **Periodic Stats**: `svc-feed-stats` logs a summary every 2 minutes by default (configurable via `STATS_LOG_INTERVAL`). Stats logging works with all feed profiles. ADSBx upload only activates when `adsbexchange` is in `FEED_PROFILES`.
 
   **RTL-SDR Tools**: The runtime image includes `rtl_test` and `rtl_eeprom` for dongle diagnostics and serial tagging. USB device permissions are fixed automatically during init.
 
