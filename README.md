@@ -545,6 +545,8 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 | `flyitalyadsb` | `dati.flyitalyadsb.com:30100` |
 | `radarplane` | `mlat.radarplane.com:40900` |
 
+> **Feeder name**: Most aggregators (e.g. ADSBExchange) derive your display name from the `--user` / `MLAT_CLIENT_USER_ID` value sent by your mlat-client container. If no mlat-client is connected, the exchange typically auto-generates a random name. To set a custom name, configure `MLAT_CLIENT_USER_ID` in your mlat-client sidecar (see examples below).
+
 ### Quick Start — Single Exchange
 
 ```yaml
