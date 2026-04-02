@@ -60,7 +60,7 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     fi
 
     log_info "Feed UUID: $(cat "${uuid_file}")"
-    log_info "Active feed profiles: ${FEED_PROFILES}"
+    log_info "Active feed profiles: ${FEED_PROFILES:-adsbexchange}"
 
     # Create stats temp directory
     mkdir -p /run/adsbexchange-stats
