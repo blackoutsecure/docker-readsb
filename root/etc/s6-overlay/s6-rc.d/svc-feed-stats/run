@@ -177,25 +177,42 @@ while true; do
         sleep 0.314
 
         # Upload aircraft data to ADSBx
-        _curl_resp=""
-        if ! _curl_resp=$(curl -m ${MAX_CURL_TIME} -sS -X POST \
+        _curl_body=""
+        _curl_rc=0
+        _upload_size=$(stat --printf="%s" "${TEMP_DIR}/upload.gz" 2>/dev/null || echo "?")
+        _curl_body=$(curl -m ${MAX_CURL_TIME} -sS -o - -w "\n%{http_code}" -X POST \
             -H "adsbx-uuid: ${UUID}" \
             -H "Content-Type: application/json" \
             -H "Content-Encoding: gzip" \
             --data-binary @"${TEMP_DIR}/upload.gz" \
-            "${REMOTE_URL}" 2>&1); then
-            log_warn "ADSBx data upload failed: ${_curl_resp}"
+            "${REMOTE_URL}" 2>&1) || _curl_rc=$?
+        _http_code="${_curl_body##*$'\n'}"
+        _resp_body="${_curl_body%$'\n'*}"
+        if [[ ${_curl_rc} -ne 0 ]]; then
+            log_warn "ADSBx data upload failed (curl exit ${_curl_rc}): ${_resp_body}"
             sleep $(( 5 + RANDOM % 15 ))
+        elif [[ "${_http_code}" =~ ^2 ]]; then
+            log_info "ADSBx data upload OK (HTTP ${_http_code}, ${_upload_size}B gz)"
+        else
+            log_warn "ADSBx data upload rejected (HTTP ${_http_code}): ${_resp_body}"
         fi
 
         # Send status ping so ADSBx knows the stats service is running
-        _status_resp=""
-        if ! _status_resp=$(curl -m ${MAX_CURL_TIME} -sS -X POST \
+        _curl_body=""
+        _curl_rc=0
+        _curl_body=$(curl -m ${MAX_CURL_TIME} -sS -o - -w "\n%{http_code}" -X POST \
             -H "adsbx-uuid: ${UUID}" \
             -H "Content-Type: application/json" \
             -d "{\"uuid\":\"${UUID}\",\"lat\":${_feed_lat:-null},\"lon\":${_feed_lon:-null}}" \
-            "${STATUS_URL}" 2>&1); then
-            log_warn "ADSBx status ping failed: ${_status_resp}"
+            "${STATUS_URL}" 2>&1) || _curl_rc=$?
+        _http_code="${_curl_body##*$'\n'}"
+        _resp_body="${_curl_body%$'\n'*}"
+        if [[ ${_curl_rc} -ne 0 ]]; then
+            log_warn "ADSBx status ping failed (curl exit ${_curl_rc}): ${_resp_body}"
+        elif [[ "${_http_code}" =~ ^2 ]]; then
+            log_info "ADSBx status ping OK (HTTP ${_http_code})"
+        else
+            log_warn "ADSBx status ping rejected (HTTP ${_http_code}): ${_resp_body}"
         fi
     fi
 done
