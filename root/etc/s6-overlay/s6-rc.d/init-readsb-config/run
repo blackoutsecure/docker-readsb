@@ -54,37 +54,46 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
 fi
 
 if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
-    uuid_file="/config/feed-uuid"
+    # ── Per-profile UUID generation ───────────────────────────────────────────
+    # Each aggregator gets its own UUID stored in /config/feed-uuid-<profile>.
+    # Priority: FEED_UUID_<PROFILE> env > existing per-profile file > auto-generate
+    _uuid_regex='^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$'
 
-    # If user provided FEED_UUID env var, use that (override)
-    if [[ -n "${FEED_UUID:-}" ]]; then
-        echo "${FEED_UUID}" > "${uuid_file}"
-        log_info "Feed UUID set from FEED_UUID env var: ${FEED_UUID}"
-    fi
+    for _profile in "${FEED_PROFILE_LIST[@]}"; do
+        _profile_uuid_file=$(get_profile_uuid_file "${_profile}")
+        _env_suffix=$(get_profile_env_suffix "${_profile}")
+        _env_var_name="FEED_UUID_${_env_suffix}"
 
-    # If no UUID file exists, auto-generate one
-    if [[ ! -f "${uuid_file}" ]]; then
-        new_uuid=$(cat /proc/sys/kernel/random/uuid)
-        echo "${new_uuid}" > "${uuid_file}"
-        log_info "Generated new feed UUID: ${new_uuid}"
-    fi
+        # Check for profile-specific env var override
+        _env_uuid="${!_env_var_name:-}"
 
-    # Validate the UUID format
-    uuid_val=$(tr -d '[:space:]' < "${uuid_file}")
-    echo "${uuid_val}" > "${uuid_file}"
-    if ! [[ ${uuid_val} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
-        log_warn "UUID in ${uuid_file} is invalid (${uuid_val}). Regenerating."
-        new_uuid=$(cat /proc/sys/kernel/random/uuid)
-        echo "${new_uuid}" > "${uuid_file}"
-        log_info "Regenerated feed UUID: ${new_uuid}"
-    fi
+        if [[ -n "${_env_uuid}" ]]; then
+            echo "${_env_uuid}" > "${_profile_uuid_file}"
+            log_info "${_profile} UUID set from ${_env_var_name}: ${_env_uuid}"
+        elif [[ ! -f "${_profile_uuid_file}" ]]; then
+            _new_uuid=$(cat /proc/sys/kernel/random/uuid)
+            echo "${_new_uuid}" > "${_profile_uuid_file}"
+            log_info "${_profile} UUID auto-generated: ${_new_uuid}"
+        fi
 
-    # Set ownership
-    if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
-        lsiown "${readsb_user}:${readsb_user}" "${uuid_file}"
-    fi
+        # Validate UUID format
+        _uuid_val=$(tr -d '[:space:]' < "${_profile_uuid_file}")
+        echo "${_uuid_val}" > "${_profile_uuid_file}"
+        if ! [[ ${_uuid_val} =~ ${_uuid_regex} ]]; then
+            log_warn "${_profile} UUID invalid (${_uuid_val}). Regenerating."
+            _new_uuid=$(cat /proc/sys/kernel/random/uuid)
+            echo "${_new_uuid}" > "${_profile_uuid_file}"
+            _uuid_val="${_new_uuid}"
+        fi
 
-    log_info "Feed UUID: $(cat "${uuid_file}")"
+        # Set ownership
+        if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+            lsiown "${readsb_user}:${readsb_user}" "${_profile_uuid_file}"
+        fi
+
+        log_info "${_profile} UUID: ${_uuid_val}"
+    done
+
     log_info "Active feed profiles: ${FEED_PROFILES:-adsbexchange}"
 
     # Log feed status URLs for each active profile

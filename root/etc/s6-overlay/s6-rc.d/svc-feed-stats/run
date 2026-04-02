@@ -22,7 +22,8 @@ fi
 REMOTE_URL="https://adsbexchange.com/api/receive/"
 JSON_DIR="${READSB_RUN_DIR:-/run/readsb}"
 JSON_FILE="${JSON_DIR}/aircraft.json"
-UUID_FILE="/config/feed-uuid"
+# Use adsbexchange-specific UUID
+UUID_FILE="/config/feed-uuid-adsbexchange"
 TEMP_DIR="/run/adsbexchange-stats"
 WAIT_TIME=5
 MAX_CURL_TIME=10

@@ -78,6 +78,31 @@ get_feed_status_url() {
     esac
 }
 
+# Convert a profile name to an uppercase env-var suffix.
+# e.g. "adsb-fi" -> "ADSB_FI", "adsbexchange" -> "ADSBEXCHANGE"
+get_profile_env_suffix() {
+    local profile="$1"
+    echo "${profile}" | tr '[:lower:]' '[:upper:]' | tr '-' '_'
+}
+
+# Return the UUID file path for a given profile.
+# e.g. "adsbexchange" -> /config/feed-uuid-adsbexchange
+get_profile_uuid_file() {
+    local profile="$1"
+    echo "/config/feed-uuid-${profile}"
+}
+
+# Read the UUID for a given profile from its file.
+# Returns empty string if file does not exist.
+get_profile_uuid() {
+    local profile="$1"
+    local uuid_file
+    uuid_file=$(get_profile_uuid_file "${profile}")
+    if [[ -f "${uuid_file}" ]]; then
+        tr -d '[:space:]' < "${uuid_file}"
+    fi
+}
+
 # ── Profiles requiring separate containers (not supported via --net-connector) ──
 # These aggregators use proprietary binaries/protocols and require a dedicated
 # sidecar container that reads Beast data from readsb on port 30005.

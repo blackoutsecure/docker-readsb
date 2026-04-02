@@ -324,7 +324,7 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e PGID=1000` | Group ID for file ownership (LinuxServer.io base image standard) | Optional |
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
 | `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
-| `-e FEED_UUID=` | Feeder UUID (auto-generated on first run, persisted in `/config/feed-uuid`) | Optional |
+| `-e FEED_UUID_ADSBEXCHANGE=` | Per-profile UUID override. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Stored in `/config/feed-uuid-<profile>`. | Optional |
 | `-e FEED_STATS_ENABLED=true` | Enable ADSBx stats upload (requires `adsbexchange` in `FEED_PROFILES`) | Optional |
 | `-e FEED_UAT_INPUT=` | UAT 978 MHz source as `host:port` (e.g. `dump978:30978`). Requires [docker-dump978](https://github.com/blackoutsecure/docker-dump978) sidecar. US only. | Optional |
 | `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_ARGS`. | Optional |
@@ -514,7 +514,7 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 | Variable | Default | Description |
 |---|---|---|
 | `FEED_PROFILES` | `adsbexchange` | Comma-separated list of exchanges to feed. Options: `adsbexchange`, `adsb-fi`, `airplaneslive`, `planewatch`, `opensky`, `flyitalyadsb`, `adsbhub`, `radarplane`. Defaults to `adsbexchange` if unset. Set to empty string to disable feeding. |
-| `FEED_UUID` | (auto-generated) | Feeder UUID. Auto-generated on first run and persisted in `/config/feed-uuid`. Set this to force a specific UUID. |
+| `FEED_UUID_<PROFILE>` | (auto-generated) | Per-profile UUID. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSBEXCHANGE`, `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Auto-generated on first run and stored in `/config/feed-uuid-<profile>`. |
 | `FEED_STATS_ENABLED` | `true` | Enable stats upload to ADS-B Exchange (only used when `adsbexchange` is in `FEED_PROFILES`). |
 | `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
 | `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_ARGS`. |
@@ -669,7 +669,7 @@ Some aggregators use proprietary protocols or require authentication that cannot
 
 - **MLAT**: MLAT positioning requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. See the MLAT server table above for the correct server endpoint per exchange.
 
-- **UUID**: The feed UUID is auto-generated on first run and persisted in `/config/feed-uuid`. It is shared across all active feed profiles. To view your UUID: `docker exec readsb cat /config/feed-uuid`
+- **UUID**: Each feed profile gets its own UUID, stored in `/config/feed-uuid-<profile>` (e.g. `/config/feed-uuid-adsbexchange`). UUIDs are auto-generated on first run. To override, set `FEED_UUID_<PROFILE>` env vars (e.g. `FEED_UUID_ADSBEXCHANGE`). To view a profile's UUID: `docker exec readsb cat /config/feed-uuid-adsbexchange`
 
 - **Checking feed status**:
   - ADSBx: https://adsbexchange.com/myip/
@@ -698,7 +698,8 @@ All log output uses syslog format so you can identify the source and severity of
 ```
 
 ```
-2026-04-02T11:38:20Z init-readsb-config[info]: Feed UUID: 12345678-1234-1234-1234-123456789abc
+2026-04-02T11:38:20Z init-readsb-config[info]: adsbexchange UUID: 12345678-1234-1234-1234-123456789abc
+2026-04-02T11:38:20Z init-readsb-config[info]: adsb-fi UUID: 87654321-4321-4321-4321-cba987654321
 2026-04-02T11:38:20Z init-readsb-config[info]: Active feed profiles: adsbexchange,adsb-fi
 2026-04-02T11:38:20Z init-readsb-config[info]: Verify adsbexchange feed: https://adsbexchange.com/myip/
 2026-04-02T11:38:20Z init-readsb-config[info]: Verify adsb-fi feed: https://adsb.fi/status
@@ -715,7 +716,7 @@ All log output uses syslog format so you can identify the source and severity of
 
 | Service | Description |
 |---|---|
-| `init-readsb-config` | One-shot init: UUID generation, feed profile setup, USB permissions, geolocation |
+| `init-readsb-config` | One-shot init: per-profile UUID generation, feed profile setup, USB permissions, geolocation |
 | `svc-readsb` | Main readsb decoder service (startup config + decoder output) |
 | `svc-feed-stats` | ADSBExchange stats upload loop + periodic console stats (every 5 min) |
 
@@ -889,8 +890,11 @@ docker inspect --format='{{.State.Health.Status}}' readsb
 # Aircraft count
 docker exec readsb cat /run/readsb/aircraft.json | jq '.aircraft | length'
 
-# Feed UUID
-docker exec readsb cat /config/feed-uuid
+# Feed UUID (per-profile)
+docker exec readsb cat /config/feed-uuid-adsbexchange
+
+# List all profile UUIDs
+docker exec readsb ls /config/feed-uuid-*
 
 # Service uptime
 docker exec readsb s6-svstat /run/service/svc-readsb

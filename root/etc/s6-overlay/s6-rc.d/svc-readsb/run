@@ -104,12 +104,17 @@ feed_active=false
 if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     feed_active=true
 
-    # Add a --net-connector for each active profile
+    # Add a --net-connector for each active profile (with per-profile UUID)
     for _fp in "${FEED_PROFILE_LIST[@]}"; do
         _fc=$(get_feed_connector "${_fp}")
         if [[ -z "${_fc}" ]]; then
             log_warn "Unknown feed profile '${_fp}' -- skipping."
             continue
+        fi
+        # Inject per-profile UUID into the connector string
+        _fp_uuid=$(get_profile_uuid "${_fp}")
+        if [[ -n "${_fp_uuid}" ]]; then
+            _fc="${_fc},uuid=${_fp_uuid}"
         fi
         readsb_args+=(--net-connector "${_fc}")
     done
@@ -147,12 +152,6 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     fi
     if ! has_readsb_opt "--write-json-every"; then
         readsb_args+=(--write-json-every 1)
-    fi
-
-    # UUID file
-    uuid_file="/config/feed-uuid"
-    if [[ -f "${uuid_file}" ]]; then
-        readsb_args+=(--uuid-file "${uuid_file}")
     fi
 
     # Lat/lon from FEED_LAT/FEED_LON (fallback if not already in READSB_ARGS)
@@ -193,13 +192,14 @@ log_kv "FEED_LAT" "${FEED_LAT:-unset}"
 log_kv "FEED_LON" "${FEED_LON:-unset}"
 log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
 if [[ "${feed_active}" == "true" ]]; then
-    log_kv "FEED_UUID" "$(cat /config/feed-uuid 2>/dev/null || echo 'missing')"
     log_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
     log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
     for _fp in "${FEED_PROFILE_LIST[@]}"; do
         _fc=$(get_feed_connector "${_fp}")
         _ms=$(get_mlat_server "${_fp}")
+        _fp_uuid=$(get_profile_uuid "${_fp}")
         log_kv "FEED[${_fp}]" "${_fc}"
+        log_kv "UUID[${_fp}]" "${_fp_uuid:-missing}"
         if [[ -n "${_ms}" ]]; then
             log_kv "MLAT[${_fp}]" "${_ms} (use separate mlat-client container)"
         fi

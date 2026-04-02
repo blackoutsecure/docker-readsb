@@ -33,7 +33,7 @@ opt_param_env_vars:
   - {env_var: "PUID", env_value: "1000", desc: "User ID for file ownership (LinuxServer.io base image standard)"}
   - {env_var: "PGID", env_value: "1000", desc: "Group ID for file ownership (LinuxServer.io base image standard)"}
   - {env_var: "FEED_PROFILES", env_value: "", desc: "Comma-separated list of exchanges to feed (e.g. adsbexchange,adsb-fi). Defaults to adsbexchange if unset."}
-  - {env_var: "FEED_UUID", env_value: "", desc: "Feeder UUID (auto-generated on first run, persisted in /config/feed-uuid)"}
+  - {env_var: "FEED_UUID_<PROFILE>", env_value: "", desc: "Per-profile UUID. Use uppercase profile name with hyphens as underscores (e.g. FEED_UUID_ADSBEXCHANGE, FEED_UUID_ADSB_FI). Auto-generated on first run, stored in /config/feed-uuid-<profile>."}
   - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable ADSBx stats upload (only when adsbexchange is in FEED_PROFILES)"}
   - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978). Requires blackoutsecure/dump978 sidecar."}
   - {env_var: "READSB_DEVICE", env_value: "", desc: "Manual: RTL-SDR device index or serial for 1090 MHz (overrides auto-detection)"}

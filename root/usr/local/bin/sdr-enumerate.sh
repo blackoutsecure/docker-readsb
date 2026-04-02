@@ -72,10 +72,10 @@ enumerate_sdr_dongles() {
         local idx=0
         while [[ ${idx} -lt ${SDR_DONGLE_COUNT} ]]; do
             local serial
-            serial=$(rtl_test -d "${idx}" -t 2>&1 | grep -oP 'SN:\s*\K\S+' | head -1 || true)
+            serial=$(rtl_test -d "${idx}" -t 2>&1 | sed -n 's/.*SN:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1 || true)
 
             if [[ -z "${serial}" ]]; then
-                serial=$(rtl_eeprom -d "${idx}" 2>&1 | grep -oP 'Serial number:\s*\K\S+' | head -1 || true)
+                serial=$(rtl_eeprom -d "${idx}" 2>&1 | sed -n 's/.*Serial number:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1 || true)
             fi
 
             local serial_lower="${serial,,}"
