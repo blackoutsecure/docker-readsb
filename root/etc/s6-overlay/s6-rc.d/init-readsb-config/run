@@ -26,3 +26,49 @@ if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
         "${readsb_config_dir}" \
         "${readsb_run_dir}"
 fi
+
+# --- Feed profile initialization ---
+# shellcheck source=/usr/local/bin/feed-profiles.sh
+. /usr/local/bin/feed-profiles.sh
+parse_feed_profiles
+
+if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
+    uuid_file="/config/feed-uuid"
+
+    # If user provided FEED_UUID env var, use that (override)
+    if [[ -n "${FEED_UUID:-}" ]]; then
+        echo "${FEED_UUID}" > "${uuid_file}"
+        echo "[init-readsb-config] Feed UUID set from FEED_UUID env var: ${FEED_UUID}"
+    fi
+
+    # If no UUID file exists, auto-generate one
+    if [[ ! -f "${uuid_file}" ]]; then
+        new_uuid=$(cat /proc/sys/kernel/random/uuid)
+        echo "${new_uuid}" > "${uuid_file}"
+        echo "[init-readsb-config] Generated new feed UUID: ${new_uuid}"
+    fi
+
+    # Validate the UUID format
+    uuid_val=$(cat "${uuid_file}" | tr -d '[:space:]')
+    echo "${uuid_val}" > "${uuid_file}"
+    if ! [[ ${uuid_val} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
+        echo "[init-readsb-config] WARNING: UUID in ${uuid_file} is invalid (${uuid_val}). Regenerating."
+        new_uuid=$(cat /proc/sys/kernel/random/uuid)
+        echo "${new_uuid}" > "${uuid_file}"
+        echo "[init-readsb-config] Regenerated feed UUID: ${new_uuid}"
+    fi
+
+    # Set ownership
+    if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+        lsiown "${readsb_user}:${readsb_user}" "${uuid_file}"
+    fi
+
+    echo "[init-readsb-config] Feed UUID: $(cat "${uuid_file}")"
+    echo "[init-readsb-config] Active feed profiles: ${FEED_PROFILES}"
+
+    # Create stats temp directory
+    mkdir -p /run/adsbexchange-stats
+    if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
+        lsiown -R "${readsb_user}:${readsb_user}" /run/adsbexchange-stats
+    fi
+fi

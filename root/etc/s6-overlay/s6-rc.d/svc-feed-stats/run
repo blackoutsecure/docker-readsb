@@ -1,0 +1,138 @@
+#!/usr/bin/with-contenv bash
+set -euo pipefail
+
+# shellcheck source=/usr/local/bin/feed-profiles.sh
+. /usr/local/bin/feed-profiles.sh
+parse_feed_profiles
+
+feed_stats_enabled=${FEED_STATS_ENABLED:-true}
+
+# Self-disable: only run when adsbexchange profile is active AND stats are enabled
+if ! has_feed_profile "adsbexchange" || [[ "${feed_stats_enabled,,}" != "true" ]]; then
+    echo "[feed-stats] Stats disabled (profiles=${FEED_PROFILES:-none}, stats=${feed_stats_enabled}). Sleeping."
+    exec sleep infinity
+fi
+
+# Configuration
+REMOTE_URL="https://adsbexchange.com/api/receive/"
+JSON_DIR="${READSB_RUN_DIR:-/run/readsb}"
+JSON_FILE="${JSON_DIR}/aircraft.json"
+UUID_FILE="/config/feed-uuid"
+TEMP_DIR="/run/adsbexchange-stats"
+WAIT_TIME=5
+MAX_CURL_TIME=10
+AGE_COMPLAIN=30
+AGE_INTERVAL=1800
+
+mkdir -p "${TEMP_DIR}"
+
+# Wait for UUID file
+loop=0
+while [[ ! -f "${UUID_FILE}" ]]; do
+    loop=$((loop + 1))
+    if [[ ${loop} -gt 12 ]]; then
+        echo "[feed-stats] ERROR: UUID file ${UUID_FILE} not found after 60s. Exiting."
+        exit 1
+    fi
+    sleep 5
+done
+
+UUID=$(cat "${UUID_FILE}" | tr -d '[:space:]')
+if ! [[ ${UUID} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
+    echo "[feed-stats] FATAL: Invalid UUID in ${UUID_FILE}: '${UUID}'. Exiting."
+    exit 1
+fi
+
+echo "[feed-stats] Starting ADSBx stats upload — UUID=${UUID}, JSON_DIR=${JSON_DIR}"
+
+# Wait for JSON file to appear
+stat_count=0
+while [[ ${stat_count} -lt 12 ]]; do
+    if [[ -f "${JSON_FILE}" ]]; then
+        break
+    fi
+    stat_count=$((stat_count + 1))
+    sleep 5
+done
+
+if [[ ! -f "${JSON_FILE}" ]]; then
+    echo "[feed-stats] ERROR: ${JSON_FILE} not found. Is readsb running?"
+    exit 1
+fi
+
+json_stat=$(stat --printf="%Y" "${JSON_FILE}" 2>/dev/null || echo "0")
+old_age=${AGE_COMPLAIN}
+
+# Random initial delay to reduce load spikes on the server
+sleep "$(( RANDOM % WAIT_TIME )).$(( RANDOM % 100 ))"
+
+while true; do
+    sleep ${WAIT_TIME} &
+    wait $!
+
+    now=$(date +%s)
+
+    new_stat=$(stat --printf="%Y" "${JSON_FILE}" 2>/dev/null || echo "")
+    if [[ -n "${new_stat}" ]]; then
+        json_stat=${new_stat}
+    fi
+
+    diff=$(( now - ${json_stat:-0} ))
+    if [[ ${diff} -gt ${old_age} ]]; then
+        echo "[feed-stats] WARNING: ${JSON_FILE} not updated in ${diff}s. Is the decoder running?"
+        old_age=$(( old_age + AGE_INTERVAL ))
+    else
+        old_age=${AGE_COMPLAIN}
+    fi
+
+    # Snapshot the JSON file for processing
+    rm -f "${TEMP_DIR}/tmp.json" "${TEMP_DIR}/new.json"
+    if ! cp "${JSON_FILE}" "${TEMP_DIR}/tmp.json" 2>/dev/null; then
+        sleep 2
+        continue
+    fi
+
+    # Read Raspberry Pi throttle status if available
+    status=""
+    if throttle=$(vcgencmd get_throttled 2>/dev/null | tr -d '"'); then
+        status="${throttle#*=}"
+    fi
+
+    # Build the stats payload with jq
+    if ! jq -c \
+        --arg STATUS "${status}" \
+        --arg UUID "${UUID}" \
+        '
+        | ."uuid"=$UUID
+        | ."v"=$STATUS
+        | ."rssi"=(if (.aircraft | length <= 0) then 0
+            else ([.aircraft[].rssi] | map(select(. >= 0))
+                | if length == 0 then [0] else . end
+                | add / length | floor) end)
+        | ."rssi-min"=(if (.aircraft | length <= 0) then 0
+            else ([.aircraft[].rssi] | map(select(. >= 0))
+                | if length == 0 then [0] else . end
+                | min | floor) end)
+        | ."rssi-max"=(if (.aircraft | length <= 0) then 0
+            else ([.aircraft[].rssi] | map(select(. >= 0))
+                | if length == 0 then [0] else . end
+                | max | floor) end)
+        ' < "${TEMP_DIR}/tmp.json" > "${TEMP_DIR}/new.json" 2>/dev/null
+    then
+        sleep 15
+        continue
+    fi
+
+    sleep 0.314
+    gzip -c < "${TEMP_DIR}/new.json" > "${TEMP_DIR}/upload.gz"
+    sleep 0.314
+
+    # Upload to ADSBx
+    if ! curl -m ${MAX_CURL_TIME} -sS -X POST \
+        -H "adsbx-uuid: ${UUID}" \
+        -H "Content_Encoding: gzip" \
+        --data-binary @"${TEMP_DIR}/upload.gz" \
+        "${REMOTE_URL}" 2>&1; then
+        sleep $(( 5 + RANDOM % 15 ))
+    fi
+done

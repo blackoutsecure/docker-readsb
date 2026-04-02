@@ -48,6 +48,7 @@ Quick links:
 - [Parameters](#parameters)
 - [Configuration](#configuration)
 - [Application Setup](#application-setup)
+- [Feed Profiles](#feed-profiles)
 - [Troubleshooting](#troubleshooting)
 - [Release & Versioning](#release--versioning)
 - [Support & Getting Help](#support--getting-help)
@@ -384,6 +385,164 @@ For all available options, see the [readsb documentation](https://github.com/wie
 
 - **Read-only filesystem**: Supported when JSON and temp directories are mounted to volumes or tmpfs
 - **Non-root user**: Supported via `READSB_USER` (requires device permission setup for RTL-SDR access)
+
+---
+
+## Feed Profiles
+
+Setting `FEED_PROFILES` activates data forwarding to one or more ADS-B data aggregators directly from the readsb container. No separate feed container is needed — readsb forwards data using `--net-connector` arguments appended automatically per profile. MLAT positioning requires a separate `mlat-client` container per exchange (see MLAT table below).
+
+### Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `FEED_PROFILES` | (empty) | Comma-separated list of exchanges to feed. Options: `adsbexchange`, `adsb-fi`, `airplaneslive`, `planewatch`, `opensky`, `flyitalyadsb`, `adsbhub`, `radarplane`. Leave empty for no feeding. |
+| `FEED_UUID` | (auto-generated) | Feeder UUID. Auto-generated on first run and persisted in `/config/feed-uuid`. Set this to force a specific UUID. |
+| `FEED_STATS_ENABLED` | `true` | Enable stats upload to ADS-B Exchange (only used when `adsbexchange` is in `FEED_PROFILES`). |
+| `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
+| `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_ARGS`. |
+| `FEED_LON` | (empty) | Receiver longitude in decimal degrees. Used as fallback if `--lon` is not in `READSB_ARGS`. |
+
+### Supported Profiles — Feed Connectors
+
+| Profile name | `--net-connector` value |
+|---|---|
+| `adsbexchange` | `feed1.adsbexchange.com,30004,beast_reduce_out,feed2.adsbexchange.com,64004` |
+| `adsb-fi` | `feed.adsb.fi,30004,beast_reduce_out` |
+| `airplaneslive` | `feed.airplanes.live,30004,beast_reduce_out` |
+| `planewatch` | `atc.plane.watch,30004,beast_reduce_out` |
+| `opensky` | `feed.opensky-network.org,30005,beast_reduce_out` |
+| `flyitalyadsb` | `dati.flyitalyadsb.com,4905,beast_reduce_out` |
+| `adsbhub` | `data.adsbhub.org,5002,beast_reduce_out` |
+| `radarplane` | `feed.radarplane.com,30001,beast_reduce_out` |
+
+### Supported Profiles — MLAT Servers
+
+| Profile name | MLAT server endpoint |
+|---|---|
+| `adsbexchange` | `feed.adsbexchange.com:31090` |
+| `adsb-fi` | `feed.adsb.fi:31090` |
+| `airplaneslive` | `feed.airplanes.live:31090` |
+| `planewatch` | `mlat.plane.watch:31090` |
+| `flyitalyadsb` | `dati.flyitalyadsb.com:30100` |
+| `radarplane` | `mlat.radarplane.com:40900` |
+
+### Quick Start — Single Exchange
+
+```yaml
+services:
+  readsb:
+    image: blackoutsecure/readsb:latest
+    container_name: readsb
+    environment:
+      - TZ=Etc/UTC
+      - READSB_ARGS=--net --device-type rtlsdr
+      - FEED_PROFILES=adsbexchange
+      - FEED_LAT=51.5074
+      - FEED_LON=-0.1278
+    volumes:
+      - readsb-config:/config
+      - readsb-run:/run/readsb
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+
+  mlat-client:
+    image: blackoutsecure/mlat-client:latest
+    container_name: mlat-adsbx
+    environment:
+      - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
+      - MLAT_CLIENT_SERVER=feed.adsbexchange.com:31090
+      - MLAT_CLIENT_LAT=51.5074
+      - MLAT_CLIENT_LON=-0.1278
+      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_USER_ID=myfeeder-london
+      - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
+    depends_on: [readsb]
+    restart: unless-stopped
+
+volumes:
+  readsb-config:
+  readsb-run:
+```
+
+### Quick Start — Multi-Exchange
+
+```yaml
+services:
+  readsb:
+    image: blackoutsecure/readsb:latest
+    container_name: readsb
+    environment:
+      - TZ=Etc/UTC
+      - READSB_ARGS=--net --device-type rtlsdr
+      - FEED_PROFILES=adsbexchange,adsb-fi,airplaneslive
+      - FEED_LAT=51.5074
+      - FEED_LON=-0.1278
+    volumes:
+      - readsb-config:/config
+      - readsb-run:/run/readsb
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+
+  mlat-adsbx:
+    image: blackoutsecure/mlat-client:latest
+    container_name: mlat-adsbx
+    environment:
+      - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
+      - MLAT_CLIENT_SERVER=feed.adsbexchange.com:31090
+      - MLAT_CLIENT_LAT=51.5074
+      - MLAT_CLIENT_LON=-0.1278
+      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_USER_ID=myfeeder-london
+      - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
+    depends_on: [readsb]
+    restart: unless-stopped
+
+  mlat-adsb-fi:
+    image: blackoutsecure/mlat-client:latest
+    container_name: mlat-adsb-fi
+    environment:
+      - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
+      - MLAT_CLIENT_SERVER=feed.adsb.fi:31090
+      - MLAT_CLIENT_LAT=51.5074
+      - MLAT_CLIENT_LON=-0.1278
+      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_USER_ID=myfeeder-london
+      - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
+    depends_on: [readsb]
+    restart: unless-stopped
+
+  mlat-airplaneslive:
+    image: blackoutsecure/mlat-client:latest
+    container_name: mlat-airplaneslive
+    environment:
+      - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
+      - MLAT_CLIENT_SERVER=feed.airplanes.live:31090
+      - MLAT_CLIENT_LAT=51.5074
+      - MLAT_CLIENT_LON=-0.1278
+      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_USER_ID=myfeeder-london
+      - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
+    depends_on: [readsb]
+    restart: unless-stopped
+
+volumes:
+  readsb-config:
+  readsb-run:
+```
+
+### Notes
+
+- **MLAT**: MLAT positioning requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. See the MLAT server table above for the correct server endpoint per exchange.
+
+- **UUID**: The feed UUID is auto-generated on first run and persisted in `/config/feed-uuid`. It is shared across all active feed profiles. To view your UUID: `docker exec readsb cat /config/feed-uuid`
+
+- **Checking feed status**:
+  - ADSBx: https://adsbexchange.com/myip/
+  - adsb.fi: https://adsb.fi/
+  - airplanes.live: https://airplanes.live/
 
 ---
 

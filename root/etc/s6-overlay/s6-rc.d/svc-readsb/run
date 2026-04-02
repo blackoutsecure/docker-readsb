@@ -98,6 +98,75 @@ if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
     readsb_args+=(--gain auto)
 fi
 
+# --- Feed profile: append --net-connector args per active profile ---
+# shellcheck source=/usr/local/bin/feed-profiles.sh
+. /usr/local/bin/feed-profiles.sh
+parse_feed_profiles
+
+feed_active=false
+if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
+    feed_active=true
+
+    # Add a --net-connector for each active profile
+    for _fp in "${FEED_PROFILE_LIST[@]}"; do
+        _fc=$(get_feed_connector "${_fp}")
+        if [[ -z "${_fc}" ]]; then
+            echo "[svc-readsb] WARNING: Unknown feed profile '${_fp}' — skipping." >&2
+            continue
+        fi
+        readsb_args+=(--net-connector "${_fc}")
+    done
+
+    # UAT input connector (only if FEED_UAT_INPUT is set, e.g. "dump978:30978")
+    if [[ -n "${FEED_UAT_INPUT:-}" ]]; then
+        _uat_host="${FEED_UAT_INPUT%%:*}"
+        _uat_port="${FEED_UAT_INPUT##*:}"
+        if [[ -n "${_uat_host}" ]] && [[ -n "${_uat_port}" ]]; then
+            readsb_args+=(--net-connector "${_uat_host},${_uat_port},uat_in,silent_fail")
+        fi
+    fi
+
+    # Shared feed tuning args — only add if user hasn't already specified them
+    if ! has_readsb_opt "--net-beast-reduce-interval"; then
+        readsb_args+=(--net-beast-reduce-interval 0.5)
+    fi
+    if ! has_readsb_opt "--net-heartbeat"; then
+        readsb_args+=(--net-heartbeat 60)
+    fi
+    if ! has_readsb_opt "--net-ro-size"; then
+        readsb_args+=(--net-ro-size 1280)
+    fi
+    if ! has_readsb_opt "--net-ro-interval"; then
+        readsb_args+=(--net-ro-interval 0.2)
+    fi
+    if ! has_readsb_opt "--json-location-accuracy"; then
+        readsb_args+=(--json-location-accuracy 2)
+    fi
+    if ! has_readsb_opt "--range-outline-hours"; then
+        readsb_args+=(--range-outline-hours 24)
+    fi
+    if ! has_readsb_opt "--max-range"; then
+        readsb_args+=(--max-range 450)
+    fi
+    if ! has_readsb_opt "--write-json-every"; then
+        readsb_args+=(--write-json-every 1)
+    fi
+
+    # UUID file
+    uuid_file="/config/feed-uuid"
+    if [[ -f "${uuid_file}" ]]; then
+        readsb_args+=(--uuid-file "${uuid_file}")
+    fi
+
+    # Lat/lon from FEED_LAT/FEED_LON (fallback if not already in READSB_ARGS)
+    if [[ -n "${FEED_LAT:-}" ]] && ! has_readsb_opt "--lat"; then
+        readsb_args+=(--lat "${FEED_LAT}")
+    fi
+    if [[ -n "${FEED_LON:-}" ]] && ! has_readsb_opt "--lon"; then
+        readsb_args+=(--lon "${FEED_LON}")
+    fi
+fi
+
 readsb_args_rendered=$(printf '%q ' "${readsb_args[@]}")
 readsb_args_rendered=${readsb_args_rendered% }
 
@@ -124,6 +193,20 @@ print_kv "READSB_RUN_DIR" "${readsb_run_dir}"
 print_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
 print_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
 print_kv "effective_ARGS" "${readsb_args_rendered}"
+print_kv "FEED_PROFILES" "${FEED_PROFILES:-none}"
+if [[ "${feed_active}" == "true" ]]; then
+    print_kv "FEED_UUID" "$(cat /config/feed-uuid 2>/dev/null || echo 'missing')"
+    print_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
+    print_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
+    for _fp in "${FEED_PROFILE_LIST[@]}"; do
+        _fc=$(get_feed_connector "${_fp}")
+        _ms=$(get_mlat_server "${_fp}")
+        print_kv "FEED[${_fp}]" "${_fc}"
+        if [[ -n "${_ms}" ]]; then
+            print_kv "MLAT[${_fp}]" "${_ms} (use separate mlat-client container)"
+        fi
+    done
+fi
 
 if [[ ${_dt_val} == "rtlsdr" ]]; then
     usb_char_devs=0

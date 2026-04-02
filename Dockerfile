@@ -87,7 +87,10 @@ RUN apk add --no-cache \
         ncurses-libs \
         jemalloc \
         zlib \
-        zstd
+        zstd \
+        curl \
+        jq \
+        gzip
 
 COPY --link --from=builder /out/usr/local/ /usr/local/
 COPY --link root/ /
