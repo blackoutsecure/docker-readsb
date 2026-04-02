@@ -43,11 +43,14 @@ Quick links:
 - [Supported Architectures](#supported-architectures)
 - [Usage](#usage)
   - [Docker Compose](#docker-compose-recommended-click-here-for-more-info)
+  - [Docker Compose (Network-only)](#docker-compose-with-rtl-sdr-over-network-eg-from-a-remote-receiver)
+  - [Docker Compose (dump978 Sidecar)](#docker-compose-with-dump978-sidecar-dual-1090978-mhz-us-only)
   - [Docker CLI](#docker-cli-click-here-for-more-info)
   - [Balena Deployment](#balena-deployment)
 - [Parameters](#parameters)
 - [Configuration](#configuration)
 - [Application Setup](#application-setup)
+- [SDR Device Selection](#sdr-device-selection)
 - [Feed Profiles](#feed-profiles)
 - [Troubleshooting](#troubleshooting)
 - [Release & Versioning](#release--versioning)
@@ -65,6 +68,8 @@ docker run -d \
   --name=readsb \
   --restart unless-stopped \
   -e TZ=Etc/UTC \
+  -e PUID=1000 \
+  -e PGID=1000 \
   -e READSB_ARGS="--net --device-type rtlsdr" \
   -p 30001:30001 \
   -p 30002:30002 \
@@ -75,6 +80,7 @@ docker run -d \
   -v readsb-config:/config \
   -v readsb-json:/run/readsb \
   --device=/dev/bus/usb:/dev/bus/usb \
+  --security-opt no-new-privileges:true \
   blackoutsecure/readsb:latest
 ```
 
@@ -145,6 +151,8 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
+      - PUID=1000
+      - PGID=1000
       - READSB_ARGS=--net --device-type rtlsdr
     volumes:
       - /path/to/readsb/config:/config
@@ -158,10 +166,12 @@ services:
       - 30104:30104  # JSON protocol (TCP)
     devices:
       - /dev/bus/usb:/dev/bus/usb
-    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     tmpfs:
       - /tmp
-      - /run
+      - /run:exec
+    restart: unless-stopped
 ```
 
 ### docker-compose with RTL-SDR over network (e.g., from a remote receiver)
@@ -174,7 +184,8 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_USER=root
+      - PUID=1000
+      - PGID=1000
       - READSB_ARGS=--net --lon <longitude> --lat <latitude>
     volumes:
       - /path/to/readsb/config:/config
@@ -186,12 +197,84 @@ services:
       - 30004:30004
       - 30005:30005
       - 30104:30104
-    restart: unless-stopped
-    read_only: false
+    security_opt:
+      - no-new-privileges:true
     tmpfs:
       - /tmp
-      - /run
+      - /run:exec
+    restart: unless-stopped
 ```
+
+### docker-compose with dump978 sidecar (dual 1090/978 MHz, US only)
+
+```yaml
+---
+services:
+  readsb:
+    image: blackoutsecure/readsb:latest
+    container_name: readsb
+    environment:
+      - TZ=Etc/UTC
+      - PUID=1000
+      - PGID=1000
+      - READSB_ARGS=--net --device-type rtlsdr
+      - FEED_UAT_INPUT=dump978:30978
+      # - READSB_DEVICE=00001090  # pin 1090 dongle by serial
+    volumes:
+      - readsb-config:/config
+      - readsb-json:/run/readsb
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    ports:
+      - 30001:30001
+      - 30002:30002
+      - 30003:30003
+      - 30004:30004
+      - 30005:30005
+      - 30104:30104
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /run:exec
+    restart: unless-stopped
+    depends_on:
+      - dump978
+
+  dump978:
+    image: blackoutsecure/dump978:latest
+    container_name: dump978
+    environment:
+      - TZ=Etc/UTC
+      - PUID=1000
+      - PGID=1000
+      - DUMP978_SDR=driver=rtlsdr,serial=00000978
+      - DUMP978_PROFILE=adsbexchange
+    volumes:
+      - dump978-config:/config
+      - dump978-run:/run/dump978-fa
+    ports:
+      - 8978:8978
+      - 30978:30978
+      - 30979:30979
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+      - /run:exec
+    restart: unless-stopped
+
+volumes:
+  readsb-config:
+  readsb-json:
+  dump978-config:
+  dump978-run:
+```
+
+> **Note:** UAT 978 MHz is US-only (below 18,000 ft). Tag your dongles with `rtl_eeprom -d 0 -s 00001090` and `rtl_eeprom -d 1 -s 00000978`.
+> See [blackoutsecure/docker-dump978](https://github.com/blackoutsecure/docker-dump978) for full dump978 documentation.
 
 ### docker-cli ([click here for more info](https://docs.docker.com/engine/reference/commandline/cli/))
 
@@ -199,6 +282,8 @@ services:
 docker run -d \
   --name=readsb \
   -e TZ=Etc/UTC \
+  -e PUID=1000 \
+  -e PGID=1000 \
   -e READSB_ARGS="--net --device-type rtlsdr" \
   -p 30001:30001 \
   -p 30002:30002 \
@@ -209,6 +294,7 @@ docker run -d \
   -v /path/to/readsb/config:/config \
   -v /path/to/readsb/json:/run/readsb \
   --device=/dev/bus/usb:/dev/bus/usb \
+  --security-opt no-new-privileges:true \
   --restart unless-stopped \
   blackoutsecure/readsb:latest
 ```
@@ -244,8 +330,14 @@ For deployment via the web interface, use the deploy button in this repository. 
 | :----: | --- | :---: |
 | `-e TZ=Etc/UTC` | Timezone ([TZ database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)) | Optional |
 | `-e READSB_ARGS=` | Additional arguments for readsb | Optional |
-| `-e PUID=911` | User ID for non-root operation | Optional |
-| `-e PGID=911` | Group ID for non-root operation | Optional |
+| `-e READSB_USER=abc` | Runtime user (default: `abc`). Set to `root` only if USB permissions require it. | Optional |
+| `-e PUID=1000` | User ID for file ownership (used when `READSB_USER=abc`) | Optional |
+| `-e PGID=1000` | Group ID for file ownership (used when `READSB_USER=abc`) | Optional |
+| `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
+| `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
+| `-e FEED_UUID=` | Feeder UUID (auto-generated on first run, persisted in `/config/feed-uuid`) | Optional |
+| `-e FEED_STATS_ENABLED=true` | Enable ADSBx stats upload (requires `adsbexchange` in `FEED_PROFILES`) | Optional |
+| `-e FEED_UAT_INPUT=` | UAT 978 MHz source as `host:port` (e.g. `dump978:30978`). Requires [docker-dump978](https://github.com/blackoutsecure/docker-dump978) sidecar. US only. | Optional |
 | `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_ARGS`. | Optional |
 | `-e FEED_LON=` | Receiver longitude (e.g. `-122.3321`). Fallback if `--lon` not in `READSB_ARGS`. | Optional |
 | `-e READSB_AUTO_LOCATION=true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` not set. | Optional |
@@ -330,19 +422,20 @@ Environment variables are set using `-e` flags in `docker run` or the `environme
 
 ## User / Group Identifiers
 
-By default, this container runs as `root` for best USB RTL-SDR device compatibility.
+By default, this container runs as the LSIO `abc` user (non-root) for better security isolation. The `abc` user is created by the [LinuxServer.io base image](https://docs.linuxserver.io/general/understanding-puid-and-pgid/) with UID/GID 911 and remapped at container start via `PUID`/`PGID`.
 
-**Root mode (default):**
+**Non-root mode (default, recommended):**
 
+- `READSB_USER` defaults to `abc` (set in the Dockerfile)
+- Set `PUID` and `PGID` to match your host user (e.g. `1000:1000`)
+- If `PUID`/`PGID` are omitted, the LSIO base image keeps `abc` at UID/GID `911`
+- RTL-SDR USB access works via the `devices:` mapping
+
+**Root mode (fallback):**
+
+- Set `READSB_USER=root`
 - No `PUID` or `PGID` needed
-- RTL-SDR USB access works out-of-the-box
-
-**Non-root mode (advanced):**
-
-- Set `READSB_USER` to your username
-- Provide matching `PUID` and `PGID` values
-- Defaults to `911:911` if omitted
-- RTL-SDR device access requires proper permissions
+- Only use if non-root mode has USB permission issues
 
 ---
 
@@ -389,17 +482,47 @@ For all available options, see the [readsb documentation](https://github.com/wie
 - **Read-only filesystem**: Supported when JSON and temp directories are mounted to volumes or tmpfs
 - **Non-root user**: Supported via `READSB_USER` (requires device permission setup for RTL-SDR access)
 
+### SDR Device Selection
+
+The container auto-detects RTL-SDR dongles at startup and assigns the 1090 MHz device automatically using the community serial-number convention.
+
+**Auto-detection (default):**
+
+- Single dongle: assumed to be 1090 MHz
+- Multiple dongles: serial containing `978` or `uat` is identified as UAT (informational); first non-UAT dongle is assigned as 1090
+
+**Manual override:**
+
+Set `READSB_DEVICE` to a device index or serial number:
+
+```yaml
+environment:
+  - READSB_DEVICE=0          # by device index
+  - READSB_DEVICE=00001090   # by serial number
+```
+
+**UAT 978 MHz (US only):**
+
+readsb only decodes 1090 MHz. For 978 MHz UAT, run [blackoutsecure/docker-dump978](https://github.com/blackoutsecure/docker-dump978) as a sidecar container and set `FEED_UAT_INPUT=dump978:30978` to merge UAT aircraft into readsb's unified output. See the [dump978 sidecar compose example](#docker-compose-with-dump978-sidecar-dual-1090978-mhz-us-only) above.
+
+**Tagging dongle serials:**
+
+```bash
+rtl_eeprom -d 0 -s 00001090   # tag first dongle as 1090
+rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
+```
+
 ---
 
 ## Feed Profiles
 
-Setting `FEED_PROFILES` activates data forwarding to one or more ADS-B data aggregators directly from the readsb container. No separate feed container is needed — readsb forwards data using `--net-connector` arguments appended automatically per profile. MLAT positioning requires a separate `mlat-client` container per exchange (see MLAT table below).
+`FEED_PROFILES` controls data forwarding to ADS-B data aggregators directly from the readsb container. It defaults to `adsbexchange` if unset. No separate feed container is needed — readsb forwards data using `--net-connector` arguments appended automatically per profile. Set `FEED_PROFILES` to an empty string to disable all feeding. MLAT positioning requires a separate `mlat-client` container per exchange (see MLAT table below).
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `FEED_PROFILES` | (empty) | Comma-separated list of exchanges to feed. Options: `adsbexchange`, `adsb-fi`, `airplaneslive`, `planewatch`, `opensky`, `flyitalyadsb`, `adsbhub`, `radarplane`. Leave empty for no feeding. |
+| `FEED_PROFILES` | `adsbexchange` | Comma-separated list of exchanges to feed. Options: `adsbexchange`, `adsb-fi`, `airplaneslive`, `planewatch`, `opensky`, `flyitalyadsb`, `adsbhub`, `radarplane`. Defaults to `adsbexchange` if unset. Set to empty string to disable feeding. |
 | `FEED_UUID` | (auto-generated) | Feeder UUID. Auto-generated on first run and persisted in `/config/feed-uuid`. Set this to force a specific UUID. |
 | `FEED_STATS_ENABLED` | `true` | Enable stats upload to ADS-B Exchange (only used when `adsbexchange` is in `FEED_PROFILES`). |
 | `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
@@ -569,6 +692,56 @@ Some aggregators use proprietary protocols or require authentication that cannot
 ---
 
 ## Troubleshooting
+
+### Log Format
+
+All log output uses syslog format so you can identify the source and severity of each line in `docker logs`, and it integrates natively with log aggregators (Loki, Datadog, Fluentd, etc.):
+
+```
+<timestamp> <service>[<priority>]: <message>
+```
+
+```
+2026-04-02T11:38:20Z init-readsb-config[info]: Feed UUID: 12345678-1234-1234-1234-123456789abc
+2026-04-02T11:38:20Z init-readsb-config[info]: Active feed profiles: adsbexchange,adsb-fi
+2026-04-02T11:38:20Z init-readsb-config[info]: receiver location: 51.5074, -0.1278
+2026-04-02T11:38:21Z svc-readsb[info]: readsb container startup configuration
+2026-04-02T11:38:21Z svc-readsb[decoder]: *8daa4b32584385ef2a7603346e29;
+2026-04-02T11:38:21Z svc-readsb[decoder]: hex:  aa4b32   CRC: 000000 fixed bits: 0 decode: ok
+2026-04-02T11:38:21Z svc-readsb[decoder]: RSSI:    -22.0 dBFS   reduce_forward: 1
+2026-04-02T11:38:22Z svc-feed-stats[info]: Starting ADSBx stats upload -- UUID=12345678-...
+2026-04-02T11:38:52Z svc-feed-stats[warn]: /run/readsb/aircraft.json not updated in 45s.
+```
+
+| Service | Description |
+|---|---|
+| `init-readsb-config` | One-shot init: UUID generation, feed profile setup, geolocation |
+| `svc-readsb` | Main readsb decoder service (startup config + decoder output) |
+| `svc-feed-stats` | ADSBExchange stats upload loop |
+
+| Priority | Meaning |
+|---|---|
+| `info` | Normal operational messages |
+| `warn` | Non-fatal issues that may need attention |
+| `error` | Errors that affect functionality |
+| `fatal` | Critical errors causing service exit |
+| `decoder` | Raw readsb decoder output (ADS-B message decoding) |
+
+**Filter logs by service:**
+
+```bash
+docker logs readsb 2>&1 | grep 'svc-readsb\['
+docker logs readsb 2>&1 | grep 'svc-feed-stats\['
+docker logs readsb 2>&1 | grep 'init-readsb-config\['
+```
+
+**Filter logs by priority:**
+
+```bash
+docker logs readsb 2>&1 | grep '\[warn\]:'
+docker logs readsb 2>&1 | grep '\[error\]:\|\[fatal\]:'
+docker logs readsb 2>&1 | grep '\[decoder\]:'
+```
 
 ### Container won't start or exits immediately
 

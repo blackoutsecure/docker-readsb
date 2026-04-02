@@ -60,7 +60,7 @@ FROM ${BASE_IMAGE}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-ARG READSB_USER=root
+ARG READSB_USER=abc
 ARG READSB_RUN_DIR=/run/readsb
 ARG TAR1090_DB_PATH=/usr/local/share/tar1090/aircraft.csv.gz
 ARG VCS_URL
@@ -90,7 +90,8 @@ RUN apk add --no-cache \
         zstd \
         curl \
         jq \
-        gzip
+        gzip \
+        usbutils
 
 COPY --link --from=builder /out/usr/local/ /usr/local/
 COPY --link root/ /

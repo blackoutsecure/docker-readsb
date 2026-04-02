@@ -29,13 +29,14 @@ param_env_vars:
 # optional env variables
 opt_param_usage_include_env: true
 opt_param_env_vars:
-  - {env_var: "READSB_USER", env_value: "root", desc: "Runtime user. Root is recommended for USB device access."}
-  - {env_var: "PUID", env_value: "", desc: "Optional: User ID for non-root mode (defaults to 911 if READSB_USER is set)"}
-  - {env_var: "PGID", env_value: "", desc: "Optional: Group ID for non-root mode (defaults to 911 if READSB_USER is set)"}
-  - {env_var: "FEED_PROFILES", env_value: "", desc: "Comma-separated list of exchanges to feed (e.g. adsbexchange,adsb-fi). Empty = no feeding."}
+  - {env_var: "READSB_USER", env_value: "abc", desc: "Runtime user (default: abc). Set to 'root' only if USB permissions require it."}
+  - {env_var: "PUID", env_value: "1000", desc: "User ID for file ownership (used when READSB_USER=abc)"}
+  - {env_var: "PGID", env_value: "1000", desc: "Group ID for file ownership (used when READSB_USER=abc)"}
+  - {env_var: "FEED_PROFILES", env_value: "", desc: "Comma-separated list of exchanges to feed (e.g. adsbexchange,adsb-fi). Defaults to adsbexchange if unset."}
   - {env_var: "FEED_UUID", env_value: "", desc: "Feeder UUID (auto-generated on first run, persisted in /config/feed-uuid)"}
   - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable ADSBx stats upload (only when adsbexchange is in FEED_PROFILES)"}
-  - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978)"}
+  - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978). Requires blackoutsecure/dump978 sidecar."}
+  - {env_var: "READSB_DEVICE", env_value: "", desc: "Manual: RTL-SDR device index or serial for 1090 MHz (overrides auto-detection)"}
   - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_ARGS)"}
   - {env_var: "FEED_LON", env_value: "", desc: "Receiver longitude (fallback if --lon not in READSB_ARGS)"}
   - {env_var: "READSB_AUTO_LOCATION", env_value: "true", desc: "Auto-detect location via IP geolocation when FEED_LAT/FEED_LON not set"}

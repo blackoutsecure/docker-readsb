@@ -2,7 +2,12 @@
 
 set -euo pipefail
 
-readsb_user=${READSB_USER:-root}
+# ── Logging ───────────────────────────────────────────────────────────────────
+SVC_NAME="svc-readsb"
+# shellcheck source=/usr/local/bin/log-functions.sh
+. /usr/local/bin/log-functions.sh
+
+readsb_user=${READSB_USER:-abc}
 readsb_run_dir=${READSB_RUN_DIR:-/run/readsb}
 tar1090_db_path=${TAR1090_DB_PATH:-/usr/local/share/tar1090/aircraft.csv.gz}
 build_metadata_path=/usr/local/share/readsb/build-metadata.env
@@ -16,29 +21,10 @@ if [[ -r "${build_metadata_path}" ]]; then
     set +a
 fi
 
-if [[ "${readsb_user}" != "root" ]]; then
-    if [[ "${readsb_user}" == "abc" && -z ${PUID:-} ]]; then
-        export PUID=911
-    fi
-    if [[ "${readsb_user}" == "abc" && -z ${PGID:-} ]]; then
-        export PGID=911
-    fi
-fi
-
-timestamp_utc() {
-    date -u '+%Y-%m-%d %H:%M:%S UTC'
-}
-
-print_kv() {
-    local key=$1
-    local value=$2
-    printf '[%s] %-15s %s\n' "$(timestamp_utc)" "${key}:" "${value}"
-}
-
 # Create runtime directory at service start in case one-shot init did not run yet.
 if ! mkdir -p "${readsb_run_dir}"; then
-    echo "ERROR: unable to create READSB_RUN_DIR (${readsb_run_dir})." >&2
-    echo "If running as non-root, ensure /run tmpfs uses matching uid/gid." >&2
+    log_fatal "unable to create READSB_RUN_DIR (${readsb_run_dir})."
+    log_fatal "If running as non-root, ensure /run tmpfs uses matching uid/gid."
     exit 1
 fi
 
@@ -98,6 +84,17 @@ if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
     readsb_args+=(--gain auto)
 fi
 
+# Apply SDR device assignment (manual READSB_DEVICE or auto-detected SDR_1090_INDEX)
+if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--device"; then
+    if [[ -n "${READSB_DEVICE:-}" ]]; then
+        readsb_args+=(--device "${READSB_DEVICE}")
+        log_info "Using manually assigned 1090 MHz dongle: --device ${READSB_DEVICE}"
+    elif [[ -n "${SDR_1090_INDEX:-}" ]]; then
+        readsb_args+=(--device "${SDR_1090_INDEX}")
+        log_info "Using auto-detected 1090 MHz dongle: --device ${SDR_1090_INDEX}"
+    fi
+fi
+
 # --- Feed profile: append --net-connector args per active profile ---
 # shellcheck source=/usr/local/bin/feed-profiles.sh
 . /usr/local/bin/feed-profiles.sh
@@ -111,7 +108,7 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     for _fp in "${FEED_PROFILE_LIST[@]}"; do
         _fc=$(get_feed_connector "${_fp}")
         if [[ -z "${_fc}" ]]; then
-            echo "[svc-readsb] WARNING: Unknown feed profile '${_fp}' — skipping." >&2
+            log_warn "Unknown feed profile '${_fp}' -- skipping."
             continue
         fi
         readsb_args+=(--net-connector "${_fc}")
@@ -126,7 +123,7 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         fi
     fi
 
-    # Shared feed tuning args — only add if user hasn't already specified them
+    # Shared feed tuning args -- only add if user hasn't already specified them
     if ! has_readsb_opt "--net-beast-reduce-interval"; then
         readsb_args+=(--net-beast-reduce-interval 0.5)
     fi
@@ -175,38 +172,36 @@ if [[ -r /build_version ]]; then
     build_version=$(< /build_version)
 fi
 
-echo "[$(timestamp_utc)] readsb container startup configuration"
-print_kv "build_version" "${build_version}"
-print_kv "VERSION" "${VERSION:-unknown}"
-print_kv "BUILD_DATE" "${BUILD_DATE:-unknown}"
-print_kv "VCS_REF" "${VCS_REF:-unknown}"
-print_kv "PUID" "${PUID:-unset}"
-print_kv "PGID" "${PGID:-unset}"
-print_kv "UMASK" "${UMASK:-unset}"
-print_kv "TZ" "${TZ:-unset}"
-print_kv "READSB_USER" "${readsb_user}"
-print_kv "READSB_ARGS(raw)" "${READSB_ARGS:-unset}"
-print_kv "READSB_ARGS(src)" "${readsb_args_source}"
-print_kv "effective_PUID" "${PUID:-unset}"
-print_kv "effective_PGID" "${PGID:-unset}"
-print_kv "READSB_RUN_DIR" "${readsb_run_dir}"
-print_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
-print_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
-print_kv "effective_ARGS" "${readsb_args_rendered}"
-print_kv "FEED_PROFILES" "${FEED_PROFILES:-none}"
-print_kv "FEED_LAT" "${FEED_LAT:-unset}"
-print_kv "FEED_LON" "${FEED_LON:-unset}"
-print_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
+log_info "readsb container startup configuration"
+log_kv "build_version" "${build_version}"
+log_kv "VERSION" "${VERSION:-unknown}"
+log_kv "BUILD_DATE" "${BUILD_DATE:-unknown}"
+log_kv "VCS_REF" "${VCS_REF:-unknown}"
+log_kv "PUID" "${PUID:-unset}"
+log_kv "PGID" "${PGID:-unset}"
+log_kv "UMASK" "${UMASK:-unset}"
+log_kv "TZ" "${TZ:-unset}"
+log_kv "READSB_USER" "${readsb_user}"
+log_kv "READSB_ARGS(raw)" "${READSB_ARGS:-unset}"
+log_kv "READSB_ARGS(src)" "${readsb_args_source}"
+log_kv "READSB_RUN_DIR" "${readsb_run_dir}"
+log_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
+log_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
+log_kv "effective_ARGS" "${readsb_args_rendered}"
+log_kv "FEED_PROFILES" "${FEED_PROFILES:-none}"
+log_kv "FEED_LAT" "${FEED_LAT:-unset}"
+log_kv "FEED_LON" "${FEED_LON:-unset}"
+log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
 if [[ "${feed_active}" == "true" ]]; then
-    print_kv "FEED_UUID" "$(cat /config/feed-uuid 2>/dev/null || echo 'missing')"
-    print_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
-    print_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
+    log_kv "FEED_UUID" "$(cat /config/feed-uuid 2>/dev/null || echo 'missing')"
+    log_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
+    log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
     for _fp in "${FEED_PROFILE_LIST[@]}"; do
         _fc=$(get_feed_connector "${_fp}")
         _ms=$(get_mlat_server "${_fp}")
-        print_kv "FEED[${_fp}]" "${_fc}"
+        log_kv "FEED[${_fp}]" "${_fc}"
         if [[ -n "${_ms}" ]]; then
-            print_kv "MLAT[${_fp}]" "${_ms} (use separate mlat-client container)"
+            log_kv "MLAT[${_fp}]" "${_ms} (use separate mlat-client container)"
         fi
     done
 fi
@@ -216,34 +211,45 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
     if [[ -d /dev/bus/usb ]]; then
         usb_char_devs=$(find /dev/bus/usb -type c 2>/dev/null | wc -l | tr -d '[:space:]')
     fi
-    print_kv "USB_CHAR_DEVS" "${usb_char_devs}"
+    log_kv "USB_CHAR_DEVS" "${usb_char_devs}"
 
     if command -v lsusb >/dev/null 2>&1; then
         lsusb_compact=$(lsusb 2>/dev/null | paste -sd '; ' -)
-        print_kv "LSUSB" "${lsusb_compact:-none}"
+        log_kv "LSUSB" "${lsusb_compact:-none}"
     else
-        print_kv "LSUSB" "unavailable"
+        log_kv "LSUSB" "unavailable"
     fi
 
     if [[ ! -e /dev/bus/usb ]]; then
-        echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input." >&2
+        log_warn "/dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input."
     elif [[ ! -r /dev/bus/usb ]]; then
-        echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is not readable by the container. Check device mapping and runtime permissions." >&2
+        log_warn "/dev/bus/usb is not readable by the container. Check device mapping and runtime permissions."
     elif [[ ${usb_char_devs} -eq 0 ]]; then
-        echo "[$(timestamp_utc)] WARNING: /dev/bus/usb is present but contains no USB device nodes." >&2
-        echo "[$(timestamp_utc)] WARNING: Check host USB passthrough support and that the SDR is physically attached." >&2
+        log_warn "/dev/bus/usb is present but contains no USB device nodes."
+        log_warn "Check host USB passthrough support and that the SDR is physically attached."
     fi
 fi
 
+# ── Exec readsb with syslog-format log prefixing ─────────────────────────────────
+# Pipe readsb stdout/stderr through awk to tag every line with a syslog-format
+# prefix including a timestamp (readsb outputs decoder data to stderr).
+LOG_PIPE=$(log_pipe_cmd decoder)
+
 if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
     lsiown -R "${readsb_user}:${readsb_user}" "${readsb_run_dir}"
-    exec s6-setuidgid "${readsb_user}" /usr/local/bin/readsb "${readsb_args[@]}"
+    exec s6-setuidgid "${readsb_user}" /bin/bash -c "
+        /usr/local/bin/readsb $(printf '%q ' "${readsb_args[@]}") 2>&1 \
+            | ${LOG_PIPE}
+    "
 fi
 
 if [[ ! -w ${readsb_run_dir} ]]; then
-    echo "ERROR: READSB_RUN_DIR (${readsb_run_dir}) is not writable by current user." >&2
-    echo "When forcing user mode, set /run tmpfs uid/gid to match that user." >&2
+    log_fatal "READSB_RUN_DIR (${readsb_run_dir}) is not writable by current user."
+    log_fatal "When forcing user mode, set /run tmpfs uid/gid to match that user."
     exit 1
 fi
 
-exec /usr/local/bin/readsb "${readsb_args[@]}"
+exec /bin/bash -c "
+    /usr/local/bin/readsb $(printf '%q ' "${readsb_args[@]}") 2>&1 \
+        | ${LOG_PIPE}
+"

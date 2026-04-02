@@ -1,30 +1,17 @@
-# Auto detect text files and normalize line endings to LF
-* text=auto
+# Normalize line endings to LF
+* text=auto eol=lf
 
-# Explicitly set line endings for text files
+# Explicit text files
 *.sh text eol=lf
-*.bash text eol=lf
 *.md text eol=lf
-*.txt text eol=lf
 *.yml text eol=lf
-*.yaml text eol=lf
 *.json text eol=lf
-*.toml text eol=lf
 Dockerfile text eol=lf
-.editorconfig text eol=lf
-.gitignore text eol=lf
+LICENSE text eol=lf
+root/etc/s6-overlay/s6-rc.d/*/run text eol=lf
+root/etc/s6-overlay/s6-rc.d/*/type text eol=lf
+root/etc/s6-overlay/s6-rc.d/*/up text eol=lf
 
 # Binary files
 *.png binary
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.ico binary
-*.zip binary
-*.tar.gz binary
-
-# Diff patterns
-*.cs diff=csharp
-*.doc diff=astextplain
-*.docx diff=astextplain
-*.pdf diff=astextplain
+*.gz binary

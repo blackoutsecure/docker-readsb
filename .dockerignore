@@ -1,38 +1,30 @@
-# CI/CD and VCS
-.github/
+# VCS
 .git
-.git/**
+.github/
 .gitignore
 .gitattributes
-.gitmodules
 
-# Documentation
-README*.md
-*.md
+# Environment and secrets
+.env
+.env.*
 
-# Configuration (non-build)
+# Documentation and metadata (not needed in image)
+README.md
+LICENSE
 readme-vars.yml
+balena.yml
+logo.png
+
+# Editor and tooling config
 .editorconfig
+.vscode/
+.idea/
 
-# Build and compose files (docker-compose.yml and balena.yml kept in context for Balena block builds)
-
-# Development and examples
-debian/
-oneoff/
-local/
-.local/
-
-# Build artifacts
-*.o
-*.so
-*.a
-*.log
-.tmp-config/
+# Local development
 tmp/
+*.log
+*.tmp
 
-# Assets (include in image)
-!logo.png
-!LICENSE
-
-# Ensure shell scripts in root overlay are included
+# Ensure root overlay and Dockerfile context are included
 !root/
+!Dockerfile

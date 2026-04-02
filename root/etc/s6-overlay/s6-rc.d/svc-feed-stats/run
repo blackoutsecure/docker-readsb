@@ -1,6 +1,11 @@
 #!/usr/bin/with-contenv bash
 set -euo pipefail
 
+# ── Structured logging ───────────────────────────────────────────────────────────
+SVC_NAME="svc-feed-stats"
+# shellcheck source=/usr/local/bin/log-functions.sh
+. /usr/local/bin/log-functions.sh
+
 # shellcheck source=/usr/local/bin/feed-profiles.sh
 . /usr/local/bin/feed-profiles.sh
 parse_feed_profiles
@@ -9,7 +14,7 @@ feed_stats_enabled=${FEED_STATS_ENABLED:-true}
 
 # Self-disable: only run when adsbexchange profile is active AND stats are enabled
 if ! has_feed_profile "adsbexchange" || [[ "${feed_stats_enabled,,}" != "true" ]]; then
-    echo "[feed-stats] Stats disabled (profiles=${FEED_PROFILES:-none}, stats=${feed_stats_enabled}). Sleeping."
+    log_info "Stats disabled (profiles=${FEED_PROFILES:-none}, stats=${feed_stats_enabled}). Sleeping."
     exec sleep infinity
 fi
 
@@ -31,19 +36,19 @@ loop=0
 while [[ ! -f "${UUID_FILE}" ]]; do
     loop=$((loop + 1))
     if [[ ${loop} -gt 12 ]]; then
-        echo "[feed-stats] ERROR: UUID file ${UUID_FILE} not found after 60s. Exiting."
+        log_fatal "UUID file ${UUID_FILE} not found after 60s. Exiting."
         exit 1
     fi
     sleep 5
 done
 
-UUID=$(cat "${UUID_FILE}" | tr -d '[:space:]')
+UUID=$(tr -d '[:space:]' < "${UUID_FILE}")
 if ! [[ ${UUID} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
-    echo "[feed-stats] FATAL: Invalid UUID in ${UUID_FILE}: '${UUID}'. Exiting."
+    log_fatal "Invalid UUID in ${UUID_FILE}: '${UUID}'. Exiting."
     exit 1
 fi
 
-echo "[feed-stats] Starting ADSBx stats upload — UUID=${UUID}, JSON_DIR=${JSON_DIR}"
+log_info "Starting ADSBx stats upload -- UUID=${UUID}, JSON_DIR=${JSON_DIR}"
 
 # Wait for JSON file to appear
 stat_count=0
@@ -56,7 +61,7 @@ while [[ ${stat_count} -lt 12 ]]; do
 done
 
 if [[ ! -f "${JSON_FILE}" ]]; then
-    echo "[feed-stats] ERROR: ${JSON_FILE} not found. Is readsb running?"
+    log_error "${JSON_FILE} not found. Is readsb running?"
     exit 1
 fi
 
@@ -79,7 +84,7 @@ while true; do
 
     diff=$(( now - ${json_stat:-0} ))
     if [[ ${diff} -gt ${old_age} ]]; then
-        echo "[feed-stats] WARNING: ${JSON_FILE} not updated in ${diff}s. Is the decoder running?"
+        log_warn "${JSON_FILE} not updated in ${diff}s. Is the decoder running?"
         old_age=$(( old_age + AGE_INTERVAL ))
     else
         old_age=${AGE_COMPLAIN}
@@ -130,7 +135,7 @@ while true; do
     # Upload to ADSBx
     if ! curl -m ${MAX_CURL_TIME} -sS -X POST \
         -H "adsbx-uuid: ${UUID}" \
-        -H "Content_Encoding: gzip" \
+        -H "Content-Encoding: gzip" \
         --data-binary @"${TEMP_DIR}/upload.gz" \
         "${REMOTE_URL}" 2>&1; then
         sleep $(( 5 + RANDOM % 15 ))

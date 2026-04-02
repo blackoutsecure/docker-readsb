@@ -2,19 +2,15 @@
 
 set -euo pipefail
 
-readsb_user=${READSB_USER:-root}
+# ── Logging ───────────────────────────────────────────────────────────────────
+SVC_NAME="init-readsb-config"
+# shellcheck source=/usr/local/bin/log-functions.sh
+. /usr/local/bin/log-functions.sh
+
+readsb_user=${READSB_USER:-abc}
 readsb_run_dir=${READSB_RUN_DIR:-/run/readsb}
 readsb_config_dir=/config/readsb
 readsb_globe_history_dir=${readsb_config_dir}/globe_history
-
-if [[ "${readsb_user}" != "root" ]]; then
-    if [[ "${readsb_user}" == "abc" && -z ${PUID:-} ]]; then
-        export PUID=911
-    fi
-    if [[ "${readsb_user}" == "abc" && -z ${PGID:-} ]]; then
-        export PGID=911
-    fi
-fi
 
 mkdir -p \
     "${readsb_config_dir}" \
@@ -38,24 +34,24 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     # If user provided FEED_UUID env var, use that (override)
     if [[ -n "${FEED_UUID:-}" ]]; then
         echo "${FEED_UUID}" > "${uuid_file}"
-        echo "[init-readsb-config] Feed UUID set from FEED_UUID env var: ${FEED_UUID}"
+        log_info "Feed UUID set from FEED_UUID env var: ${FEED_UUID}"
     fi
 
     # If no UUID file exists, auto-generate one
     if [[ ! -f "${uuid_file}" ]]; then
         new_uuid=$(cat /proc/sys/kernel/random/uuid)
         echo "${new_uuid}" > "${uuid_file}"
-        echo "[init-readsb-config] Generated new feed UUID: ${new_uuid}"
+        log_info "Generated new feed UUID: ${new_uuid}"
     fi
 
     # Validate the UUID format
-    uuid_val=$(cat "${uuid_file}" | tr -d '[:space:]')
+    uuid_val=$(tr -d '[:space:]' < "${uuid_file}")
     echo "${uuid_val}" > "${uuid_file}"
     if ! [[ ${uuid_val} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
-        echo "[init-readsb-config] WARNING: UUID in ${uuid_file} is invalid (${uuid_val}). Regenerating."
+        log_warn "UUID in ${uuid_file} is invalid (${uuid_val}). Regenerating."
         new_uuid=$(cat /proc/sys/kernel/random/uuid)
         echo "${new_uuid}" > "${uuid_file}"
-        echo "[init-readsb-config] Regenerated feed UUID: ${new_uuid}"
+        log_info "Regenerated feed UUID: ${new_uuid}"
     fi
 
     # Set ownership
@@ -63,8 +59,8 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         lsiown "${readsb_user}:${readsb_user}" "${uuid_file}"
     fi
 
-    echo "[init-readsb-config] Feed UUID: $(cat "${uuid_file}")"
-    echo "[init-readsb-config] Active feed profiles: ${FEED_PROFILES}"
+    log_info "Feed UUID: $(cat "${uuid_file}")"
+    log_info "Active feed profiles: ${FEED_PROFILES}"
 
     # Create stats temp directory
     mkdir -p /run/adsbexchange-stats
@@ -81,7 +77,7 @@ receiver_lon="${FEED_LON:-}"
 auto_location="${READSB_AUTO_LOCATION:-true}"
 
 if [[ -z "${receiver_lat}" || -z "${receiver_lon}" ]] && [[ "${auto_location}" =~ ^(true|yes|1)$ ]]; then
-    # NOTE: ip-api.com free tier only supports HTTP — HTTPS requires a paid plan.
+    # NOTE: ip-api.com free tier only supports HTTP -- HTTPS requires a paid plan.
     # This request sends only the container's public IP; no PII is transmitted.
     if geo_json=$(curl -sS -m 5 "http://ip-api.com/json/?fields=status,query,lat,lon,city,regionName,country,isp,timezone" 2>/dev/null); then
         geo_status=$(printf '%s' "${geo_json}" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
@@ -94,13 +90,13 @@ if [[ -z "${receiver_lat}" || -z "${receiver_lon}" ]] && [[ "${auto_location}" =
             geo_country=$(printf '%s' "${geo_json}" | grep -o '"country":"[^"]*"' | cut -d'"' -f4)
             geo_isp=$(printf '%s' "${geo_json}" | grep -o '"isp":"[^"]*"' | cut -d'"' -f4)
             geo_tz=$(printf '%s' "${geo_json}" | grep -o '"timezone":"[^"]*"' | cut -d'"' -f4)
-            echo "[init-readsb-config] auto-detected location via IP ${geo_ip}: ${receiver_lat}, ${receiver_lon}"
-            echo "[init-readsb-config] approximate location: ${geo_city}, ${geo_region}, ${geo_country} (tz: ${geo_tz}, isp: ${geo_isp})"
+            log_info "auto-detected location via IP ${geo_ip}: ${receiver_lat}, ${receiver_lon}"
+            log_info "approximate location: ${geo_city}, ${geo_region}, ${geo_country} (tz: ${geo_tz}, isp: ${geo_isp})"
         else
-            echo "[init-readsb-config] WARNING: IP geolocation failed (status: ${geo_status:-unknown})"
+            log_warn "IP geolocation failed (status: ${geo_status:-unknown})"
         fi
     else
-        echo "[init-readsb-config] WARNING: IP geolocation request failed — network may be unavailable"
+        log_warn "IP geolocation request failed -- network may be unavailable"
     fi
 fi
 
@@ -109,7 +105,40 @@ if [[ -n "${receiver_lat}" && -n "${receiver_lon}" ]]; then
     _s6_env="/run/s6/container_environment"
     printf '%s' "${receiver_lat}" > "${_s6_env}/FEED_LAT"
     printf '%s' "${receiver_lon}" > "${_s6_env}/FEED_LON"
-    echo "[init-readsb-config] receiver location: ${receiver_lat}, ${receiver_lon}"
+    log_info "receiver location: ${receiver_lat}, ${receiver_lon}"
 else
-    echo "[init-readsb-config] no receiver location set (set FEED_LAT/FEED_LON or enable READSB_AUTO_LOCATION)"
+    log_warn "no receiver location set (set FEED_LAT/FEED_LON or enable READSB_AUTO_LOCATION)"
+fi
+
+# ── SDR dongle auto-detection ─────────────────────────────────────────────────
+# Enumerate RTL-SDR dongles and persist device assignments for svc-readsb.
+# shellcheck source=/usr/local/bin/sdr-enumerate.sh
+. /usr/local/bin/sdr-enumerate.sh
+
+if enumerate_sdr_dongles; then
+    _s6_env="/run/s6/container_environment"
+    log_info "RTL-SDR dongles detected: ${SDR_DONGLE_COUNT} (mode: ${SDR_MODE})"
+
+    if [[ -n "${SDR_1090_INDEX}" ]]; then
+        log_info "1090 MHz dongle: device ${SDR_1090_INDEX} (serial: ${SDR_1090_SERIAL:-n/a}, mode: ${SDR_MODE})"
+        printf '%s' "${SDR_1090_INDEX}" > "${_s6_env}/SDR_1090_INDEX"
+    fi
+
+    if [[ "${SDR_UAT_DETECTED}" == "true" ]]; then
+        log_info "978 MHz UAT dongle detected (serial: ${SDR_UAT_SERIAL:-n/a}) -- not used by readsb"
+        if [[ -n "${FEED_UAT_INPUT:-}" ]]; then
+            log_info "FEED_UAT_INPUT=${FEED_UAT_INPUT} -- UAT data will be ingested from dump978 sidecar"
+        else
+            log_info "To decode UAT, run blackoutsecure/dump978 as a sidecar and set FEED_UAT_INPUT=dump978:30978"
+            log_info "See: https://github.com/blackoutsecure/docker-dump978"
+        fi
+    fi
+
+    if [[ "${SDR_MODE}" == "auto" && ${SDR_DONGLE_COUNT} -ge 2 && "${SDR_UAT_DETECTED}" != "true" ]]; then
+        log_warn "Multiple RTL-SDR dongles found but none tagged as UAT (serial containing '978' or 'uat')"
+        log_warn "Set 1090 dongle manually: READSB_DEVICE=<index|serial>"
+        log_warn "Tag UAT dongle serial: rtl_eeprom -d <N> -s 00000978"
+    fi
+else
+    log_warn "SDR enumeration failed (lsusb not found or no USB devices)"
 fi

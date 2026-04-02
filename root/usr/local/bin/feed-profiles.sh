@@ -7,7 +7,7 @@
 # Usage: parse_feed_profiles -> sets FEED_PROFILE_LIST array
 parse_feed_profiles() {
     FEED_PROFILE_LIST=()
-    local profiles="${FEED_PROFILES:-}"
+    local profiles="${FEED_PROFILES:-adsbexchange}"
     if [[ -z "${profiles}" ]]; then
         return
     fi
