@@ -1,0 +1,198 @@
+#!/usr/bin/with-contenv bash
+
+set -euo pipefail
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+SVC_NAME="svc-autogain"
+# shellcheck source=/usr/local/bin/log-functions.sh
+. /usr/local/bin/log-functions.sh
+
+autogain_enabled=${READSB_AUTOGAIN:-true}
+
+# Self-disable when autogain is explicitly turned off
+if [[ "${autogain_enabled,,}" != "true" ]]; then
+    log_info "Autogain disabled (READSB_AUTOGAIN=${autogain_enabled}). Sleeping."
+    exec sleep infinity
+fi
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+# Gain step table — matches wiedehopf/adsb-scripts autogain1090 exactly
+GAIN_TABLE=(0.0 0.9 1.4 2.7 3.7 7.7 8.7 12.5 14.4 15.7 16.6 19.7 20.7 22.9 25.4 28.0 29.7 32.8 33.8 36.4 37.2 38.6 40.2 42.1 43.4 43.9 44.5 48.0 49.6 -10)
+GAIN_MAX_INDEX=$(( ${#GAIN_TABLE[@]} - 1 ))
+
+# Thresholds: percentage of messages with RSSI > -3dB
+LOW_PCT=${READSB_AUTOGAIN_LOW:-0.5}
+HIGH_PCT=${READSB_AUTOGAIN_HIGH:-7.0}
+
+# How often to check (seconds) — default 1 hour
+CHECK_INTERVAL=${READSB_AUTOGAIN_INTERVAL:-3600}
+
+# Minimum total accepted messages before making an adjustment
+MIN_MESSAGES=1000
+
+# Persistent gain file (survives container restarts)
+GAIN_FILE="/config/autogain-gain"
+
+# Ephemeral state (reset on container restart for clean delta calculation)
+STATE_DIR="/run/autogain"
+mkdir -p "${STATE_DIR}"
+
+STATS_FILE="${READSB_RUN_DIR:-/run/readsb}/stats.json"
+
+export LC_ALL=C
+
+# ── Helper: float comparison via awk ──────────────────────────────────────────
+# Returns 0 (true) if $1 < $2
+float_lt() { awk "BEGIN{ exit !($1 < $2) }"; }
+# Returns 0 (true) if $1 > $2
+float_gt() { awk "BEGIN{ exit !($1 > $2) }"; }
+
+# ── Helper: find gain index for a given gain value ────────────────────────────
+gain_to_index() {
+    local val="$1"
+    local i
+    if [[ "${val}" == "-10" ]]; then
+        echo "${GAIN_MAX_INDEX}"
+        return
+    fi
+    for i in "${!GAIN_TABLE[@]}"; do
+        if ! float_gt "${val}" "${GAIN_TABLE[$i]}"; then
+            echo "${i}"
+            return
+        fi
+    done
+    echo $(( GAIN_MAX_INDEX - 1 ))
+}
+
+# ── Initialise current gain ──────────────────────────────────────────────────
+# If no persisted gain, start at index 28 (49.6) — same as upstream default.
+if [[ -f "${GAIN_FILE}" ]]; then
+    current_gain=$(tr -d '[:space:]' < "${GAIN_FILE}")
+    log_info "Loaded persisted gain: ${current_gain}"
+else
+    current_gain="49.6"
+    echo "${current_gain}" > "${GAIN_FILE}"
+    log_info "No persisted gain found. Starting at ${current_gain} (will optimise)."
+fi
+
+log_info "Autogain active — interval=${CHECK_INTERVAL}s, low=${LOW_PCT}%, high=${HIGH_PCT}%"
+log_info "Current gain: ${current_gain}"
+
+# ── Wait for stats.json to appear ────────────────────────────────────────────
+wait_count=0
+while [[ ! -f "${STATS_FILE}" ]]; do
+    wait_count=$((wait_count + 1))
+    if [[ ${wait_count} -gt 60 ]]; then
+        log_error "stats.json not found after 5 minutes. Is readsb running?"
+        exec sleep infinity
+    fi
+    sleep 5
+done
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+while true; do
+    sleep "${CHECK_INTERVAL}" &
+    wait $!
+
+    # Read stats.json
+    if [[ ! -f "${STATS_FILE}" ]]; then
+        log_warn "stats.json missing, skipping this cycle."
+        continue
+    fi
+
+    # Extract strong_signals and total accepted from the "total" period
+    strong=$(jq -r '.total.local.strong_signals // empty' < "${STATS_FILE}" 2>/dev/null) || true
+    total=$(jq -r '.total.local.accepted | add // empty' < "${STATS_FILE}" 2>/dev/null) || true
+
+    if [[ -z "${strong}" || -z "${total}" ]]; then
+        log_warn "Could not read strong_signals/accepted from stats.json. Is an RTL-SDR in use?"
+        continue
+    fi
+
+    # Load previous values for delta calculation
+    old_strong=$(cat "${STATE_DIR}/strong" 2>/dev/null || echo "0")
+    old_total=$(cat "${STATE_DIR}/total" 2>/dev/null || echo "0")
+
+    # Save current values for next iteration
+    echo "${strong}" > "${STATE_DIR}/strong"
+    echo "${total}" > "${STATE_DIR}/total"
+
+    # If counters reset (decoder restarted), use absolute values
+    if [[ "${old_total}" -gt "${total}" ]] || [[ "${old_strong}" -gt "${strong}" ]] || [[ "${old_total}" -eq "${total}" ]]; then
+        old_strong=0
+        old_total=0
+    fi
+
+    delta_strong=$((strong - old_strong))
+    delta_total=$((total - old_total))
+
+    if [[ ${delta_total} -lt ${MIN_MESSAGES} ]]; then
+        log_info "Not enough new messages (${delta_total}/${MIN_MESSAGES}). Skipping adjustment."
+        continue
+    fi
+
+    # Calculate percentage of strong signals (>-3dB)
+    percent=$(awk "BEGIN { printf \"%.3f\", ${delta_strong} * 100.0 / ${delta_total} }")
+
+    if [[ "${percent}" == "nan" ]]; then
+        log_warn "Percentage calculation returned NaN. Skipping."
+        continue
+    fi
+
+    # Find current gain index
+    gain_index=$(gain_to_index "${current_gain}")
+
+    # Check if adjustment is needed
+    in_low=false
+    in_high=false
+    float_lt "${percent}" "${LOW_PCT}" && in_low=true
+    float_gt "${percent}" "${HIGH_PCT}" && in_high=true
+
+    if [[ "${in_low}" != "true" && "${in_high}" != "true" ]]; then
+        log_info "Gain ${current_gain} OK — ${percent}% strong signals in range [${LOW_PCT}%, ${HIGH_PCT}%]"
+        continue
+    fi
+
+    # Need to adjust
+    if [[ "${in_low}" == "true" ]]; then
+        # Too few strong signals → increase gain
+        if [[ ${gain_index} -ge ${GAIN_MAX_INDEX} ]]; then
+            log_info "Gain already at maximum (-10). ${percent}% strong signals."
+            continue
+        fi
+        new_index=$((gain_index + 1))
+        action="Increasing"
+    else
+        # Too many strong signals → decrease gain
+        if [[ ${gain_index} -le 0 ]]; then
+            log_info "Gain already at minimum (0.0). ${percent}% strong signals."
+            continue
+        fi
+        new_index=$((gain_index - 1))
+        action="Decreasing"
+    fi
+
+    new_gain="${GAIN_TABLE[${new_index}]}"
+
+    if [[ -z "${new_gain}" ]]; then
+        log_warn "Gain table lookup failed at index ${new_index}. Skipping."
+        continue
+    fi
+
+    log_info "${action} gain: ${current_gain} → ${new_gain} (${percent}% strong signals)"
+
+    # Persist the new gain value
+    echo "${new_gain}" > "${GAIN_FILE}"
+    current_gain="${new_gain}"
+
+    # Reset delta counters so next check uses fresh data after gain change
+    echo "0" > "${STATE_DIR}/strong"
+    echo "0" > "${STATE_DIR}/total"
+
+    # Restart readsb to apply the new gain value
+    # svc-readsb reads GAIN_FILE on startup when autogain is enabled
+    if [[ -d /run/service/svc-readsb ]]; then
+        log_info "Restarting readsb to apply gain ${new_gain}..."
+        s6-svc -r /run/service/svc-readsb
+    fi
+done

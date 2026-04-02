@@ -41,6 +41,11 @@ opt_param_env_vars:
   - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_ARGS)"}
   - {env_var: "FEED_LON", env_value: "", desc: "Receiver longitude (fallback if --lon not in READSB_ARGS)"}
   - {env_var: "READSB_AUTO_LOCATION", env_value: "true", desc: "Auto-detect location via IP geolocation when FEED_LAT/FEED_LON not set"}
+  - {env_var: "READSB_AUTOGAIN", env_value: "true", desc: "Enable automatic gain optimization. Analyzes strong signal percentage hourly and adjusts gain one step at a time. Persists to /config/autogain-gain. Overrides --gain auto with a managed fixed gain for better range. Set to false to use hardware AGC (--gain auto) instead."}
+  - {env_var: "READSB_AUTOGAIN_INTERVAL", env_value: "3600", desc: "How often (seconds) the autogain service checks and adjusts gain. Default 3600 (1 hour)."}
+  - {env_var: "READSB_AUTOGAIN_LOW", env_value: "0.5", desc: "Autogain low threshold (%). If strong signals fall below this, gain is increased."}
+  - {env_var: "READSB_AUTOGAIN_HIGH", env_value: "7.0", desc: "Autogain high threshold (%). If strong signals exceed this, gain is decreased."}
+  - {env_var: "READSB_BIASTEE", env_value: "false", desc: "Enable bias-T DC voltage on the RTL-SDR coax to power external LNAs or active antennas. Requires RTL-SDR Blog V3/V4 or compatible dongle. WARNING: only enable if your antenna needs DC power — sending voltage to a passive antenna can damage some dongles."}
 
 # optional parameters
 optional_parameters: |
@@ -70,8 +75,12 @@ app_setup_block: |
 
   **RTL-SDR Hardware**: Pass RTL-SDR USB device(s) to the container using `--device=/dev/bus/usb:/dev/bus/usb`.
 
+  **Automatic Gain Optimization**: Enabled by default (`READSB_AUTOGAIN=true`). Analyzes strong signal percentage hourly and steps through the RTL-SDR gain table to find the optimal fixed gain. Much better than hardware AGC. Gain persists across restarts in `/config/autogain-gain`. Set `READSB_AUTOGAIN=false` to fall back to `--gain auto`.
+
+  **Bias-T Power**: Set `READSB_BIASTEE=true` to enable DC power on the coax for active antennas with built-in LNAs. Disabled by default — only enable if your antenna requires it.
+
   **Custom Arguments**: Use `READSB_ARGS` to pass additional readsb options:
-  - `--gain 40` - Set manual gain instead of auto
+  - `--gain 40` - Set manual gain (overrides autogain)
   - `--freq-correction 10` - Add frequency correction (PPM)
   - `--lat 51.5 --lon -0.1` - Set location for range calculations
   - `--max-range 350` - Set maximum detection range (km)
@@ -80,7 +89,7 @@ app_setup_block: |
 
   **Periodic Stats**: `svc-feed-stats` logs a summary every 2 minutes by default (configurable via `STATS_LOG_INTERVAL`). Stats logging works with all feed profiles. ADSBx upload only activates when `adsbexchange` is in `FEED_PROFILES`.
 
-  **RTL-SDR Tools**: The runtime image includes `rtl_test` and `rtl_eeprom` for dongle diagnostics and serial tagging. USB device permissions are fixed automatically during init.
+  **RTL-SDR Tools**: The runtime image includes `rtl_test`, `rtl_eeprom`, and `rtl_biast` for dongle diagnostics, serial tagging, and bias-T control. USB device permissions are fixed automatically during init.
 
   For all available options, see the [readsb documentation](https://github.com/wiedehopf/readsb).
 

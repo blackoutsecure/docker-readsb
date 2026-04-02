@@ -79,9 +79,44 @@ for _dt_tok in "${readsb_args[@]}"; do
 done
 unset _dt_prev _dt_tok
 
-# If device type is rtlsdr and no --gain was provided, default to --gain auto.
+# If device type is rtlsdr and no --gain was provided, apply gain source:
+# 1. READSB_AUTOGAIN=true → read managed gain from /config/autogain-gain
+# 2. Otherwise → default to --gain auto (hardware AGC)
 if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
-    readsb_args+=(--gain auto)
+    _autogain_file="/config/autogain-gain"
+    if [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]] && [[ -f "${_autogain_file}" ]]; then
+        _ag_val=$(tr -d '[:space:]' < "${_autogain_file}")
+        if [[ -n "${_ag_val}" ]]; then
+            readsb_args+=(--gain "${_ag_val}")
+            log_info "Using autogain-managed gain: ${_ag_val}"
+        else
+            readsb_args+=(--gain auto)
+            log_warn "Autogain file empty, falling back to --gain auto"
+        fi
+    else
+        readsb_args+=(--gain auto)
+    fi
+fi
+
+# ── Bias-T ────────────────────────────────────────────────────────────────────
+# Enable bias-T power on the RTL-SDR dongle (for powered LNAs/active antennas).
+# Requires rtl_biast (provided by rtl-sdr package).
+if [[ ${_dt_val} == "rtlsdr" ]] && [[ "${READSB_BIASTEE:-false}" =~ ^(true|yes|1)$ ]]; then
+    if command -v rtl_biast >/dev/null 2>&1; then
+        _bt_args=(-b 1)
+        # If a specific device serial is known, target that dongle
+        if [[ -n "${READSB_DEVICE:-}" ]]; then
+            _bt_args+=(-d "${READSB_DEVICE}")
+        elif [[ -n "${SDR_1090_SERIAL:-}" ]]; then
+            _bt_args+=(-d "${SDR_1090_SERIAL}")
+        fi
+        log_info "Enabling bias-T: rtl_biast ${_bt_args[*]}"
+        if ! rtl_biast "${_bt_args[@]}" 2>&1 | while IFS= read -r _line; do log_info "bias-T: ${_line}"; done; then
+            log_warn "rtl_biast failed — bias-T may not be enabled. Check dongle support."
+        fi
+    else
+        log_warn "READSB_BIASTEE=true but rtl_biast not found. Install rtl-sdr package."
+    fi
 fi
 
 # Suppress per-message decoder output unless user explicitly wants it (--debug / no --quiet).
@@ -209,6 +244,8 @@ log_kv "FEED_PROFILES" "${FEED_PROFILES:-none}"
 log_kv "FEED_LAT" "${FEED_LAT:-unset}"
 log_kv "FEED_LON" "${FEED_LON:-unset}"
 log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
+log_kv "AUTOGAIN" "${READSB_AUTOGAIN:-true}"
+log_kv "BIASTEE" "${READSB_BIASTEE:-false}"
 if [[ "${feed_active}" == "true" ]]; then
     log_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
     log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
