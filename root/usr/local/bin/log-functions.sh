@@ -34,14 +34,22 @@ _log() {
         "$*" >&"${fd}"
 }
 
+# ── Log level ─────────────────────────────────────────────────────────────────
+# LOG_LEVEL controls minimum verbosity: debug | info (default) | warn | error | fatal
+_LOG_LEVEL="${LOG_LEVEL:-info}"
+declare -A _LOG_LEVEL_NUM=([debug]=0 [info]=1 [warn]=2 [error]=3 [fatal]=4)
+_CURRENT_LEVEL_NUM="${_LOG_LEVEL_NUM[${_LOG_LEVEL,,}]:-1}"
+
 # ── Public API ────────────────────────────────────────────────────────────────
-log_info()  { _log info  1 "$@"; }
-log_warn()  { _log warn  2 "$@"; }
-log_error() { _log error 2 "$@"; }
+log_debug() { [[ ${_CURRENT_LEVEL_NUM} -le 0 ]] && _log debug 1 "$@"; return 0; }
+log_info()  { [[ ${_CURRENT_LEVEL_NUM} -le 1 ]] && _log info  1 "$@"; return 0; }
+log_warn()  { [[ ${_CURRENT_LEVEL_NUM} -le 2 ]] && _log warn  2 "$@"; return 0; }
+log_error() { [[ ${_CURRENT_LEVEL_NUM} -le 3 ]] && _log error 2 "$@"; return 0; }
 log_fatal() { _log fatal 2 "$@"; }
 
 # Key-value pair with aligned columns (stdout, info priority).
 log_kv() {
+    [[ ${_CURRENT_LEVEL_NUM} -gt 1 ]] && return 0
     local key="$1"
     local value="$2"
     printf '%s %s[%s]: %-15s %s\n' \

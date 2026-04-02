@@ -157,6 +157,7 @@ services:
       - READSB_ARGS=--net --device-type rtlsdr
       - READSB_AUTOGAIN=true          # automatic gain optimization (recommended)
       # - READSB_BIASTEE=true          # enable for powered LNAs (e.g. SAWbird+)
+      - LOG_LEVEL=info                 # debug | info | warn | error | fatal
     volumes:
       - /path/to/readsb/config:/config
       - /path/to/readsb/json:/run/readsb
@@ -334,7 +335,7 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
 | `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
 | `-e FEED_UUID_ADSBEXCHANGE=` | Per-profile UUID override. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Stored in `/config/feed-uuid-<profile>`. | Optional |
-| `-e FEED_STATS_ENABLED=true` | Enable periodic console stats logging and ADSBx stats upload (upload requires `adsbexchange` in `FEED_PROFILES`) | Optional |
+| `-e FEED_STATS_ENABLED=true` | Enable periodic console stats logging and ADSBx RSSI/stats upload. Console stats log aircraft count, positions, and message totals. ADSBx upload activates automatically when `adsbexchange` is in `FEED_PROFILES`, using the same UUID as the beast feed. | Optional |
 | `-e STATS_LOG_INTERVAL=120` | Console stats logging interval in seconds (default: `120` = every 2 minutes) | Optional |
 | `-e FEED_UAT_INPUT=` | UAT 978 MHz source as `host:port` (e.g. `dump978:30978`). Requires [docker-dump978](https://github.com/blackoutsecure/docker-dump978) sidecar. US only. | Optional |
 | `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_ARGS`. | Optional |
@@ -345,6 +346,7 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e READSB_AUTOGAIN_LOW=0.5` | Autogain low threshold (%). If strong signals fall below this, gain is increased. | Optional |
 | `-e READSB_AUTOGAIN_HIGH=7.0` | Autogain high threshold (%). If strong signals exceed this, gain is decreased. | Optional |
 | `-e READSB_BIASTEE=false` | Enable bias-T DC voltage on the RTL-SDR coax to power active antennas/LNAs (default: `false`). Only enable if your antenna requires DC power. | Optional |
+| `-e LOG_LEVEL=info` | Minimum log verbosity: `debug`, `info` (default), `warn`, `error`, `fatal`. Set to `debug` for verbose operational detail, or `warn` to suppress routine informational messages. | Optional |
 
 ### Storage Mounts
 
@@ -453,7 +455,8 @@ The container runs readsb with network support and automatic RTL-SDR device dete
 - **Automatic Gain Optimization**: Enabled by default — analyzes strong signal percentage and adjusts gain hourly for optimal range (see [Automatic Gain Optimization](#automatic-gain-optimization))
 - **Bias-T Power**: Optional DC voltage on coax for active antennas with built-in LNAs (see [Bias-T Power for Active Antennas](#bias-t-power-for-active-antennas))
 - **Docker HEALTHCHECK**: Built-in health monitoring — marks container unhealthy if `aircraft.json` stops updating
-- **Periodic Stats**: Logs aircraft count, positions, and message totals every 2 minutes (configurable via `STATS_LOG_INTERVAL`)
+- **Periodic Stats**: Logs aircraft count, positions, and message totals every 2 minutes (configurable via `STATS_LOG_INTERVAL`). When `adsbexchange` is in `FEED_PROFILES`, also uploads RSSI/stats data to ADSBx every 5 seconds using the same UUID as the beast feed. Per-upload confirmations are `debug`-level.
+- **Log Verbosity**: Set `LOG_LEVEL` to control log output: `debug`, `info` (default), `warn`, `error`, `fatal`
 - **Feed Status URLs**: Init logs include verification URLs for each active feed profile
 - **RTL-SDR Tools**: `rtl_test`, `rtl_eeprom`, and `rtl_biast` available inside the container for diagnostics, dongle tagging, and bias-T control
 
@@ -531,7 +534,7 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 |---|---|---|
 | `FEED_PROFILES` | `adsbexchange` | Comma-separated list of exchanges to feed. Options: `adsbexchange`, `adsb-fi`, `airplaneslive`, `planewatch`, `opensky`, `flyitalyadsb`, `adsbhub`, `radarplane`. Defaults to `adsbexchange` if unset. Set to empty string to disable feeding. |
 | `FEED_UUID_<PROFILE>` | (auto-generated) | Per-profile UUID. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSBEXCHANGE`, `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Auto-generated on first run and stored in `/config/feed-uuid-<profile>`. |
-| `FEED_STATS_ENABLED` | `true` | Enable periodic console stats logging and ADSBx stats upload. Stats logging works with all profiles; ADSBx upload only activates when `adsbexchange` is in `FEED_PROFILES`. |
+| `FEED_STATS_ENABLED` | `true` | Enable periodic console stats logging and ADSBx RSSI/stats upload. ADSBx upload activates automatically when `adsbexchange` is in `FEED_PROFILES`, using the same UUID as the beast feed. |
 | `STATS_LOG_INTERVAL` | `120` | Console stats logging interval in seconds. Default is `120` (every 2 minutes). Set to e.g. `60` for 1 min or `300` for 5 min. |
 | `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
 | `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_ARGS`. |
@@ -539,6 +542,7 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 | `READSB_AUTO_LOCATION` | `true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` are not set. Set to `false` to disable. |
 | `READSB_AUTOGAIN` | `true` | Automatic gain optimization. Analyzes strong signal percentage hourly and adjusts gain. See [Automatic Gain Optimization](#automatic-gain-optimization). |
 | `READSB_BIASTEE` | `false` | Bias-T DC power for active antennas. See [Bias-T Power for Active Antennas](#bias-t-power-for-active-antennas). |
+| `LOG_LEVEL` | `info` | Minimum log verbosity: `debug`, `info`, `warn`, `error`, `fatal`. Set to `debug` for verbose operational detail. |
 
 ### Supported Profiles — Feed Connectors
 
@@ -554,6 +558,8 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 | `radarplane` | `feed.radarplane.com,30001,beast_reduce_out` |
 
 ### Supported Profiles — MLAT Servers
+
+MLAT (multilateration) is **optional** — your ADS-B feed and stats work without it. MLAT uses timing data from multiple receivers to locate aircraft that don't broadcast GPS positions. If you want to enable it, run a separate `mlat-client` container per exchange.
 
 | Profile name | MLAT server endpoint |
 |---|---|
@@ -692,9 +698,9 @@ Some aggregators use proprietary protocols or require authentication that cannot
 
 ### Notes
 
-- **MLAT**: MLAT positioning requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. See the MLAT server table above for the correct server endpoint per exchange.
+- **MLAT**: MLAT (multilateration) positioning is **entirely optional** — your ADS-B feed works without it. MLAT requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. If you see "MLAT: Not Found" on your feeder status page, that is normal when no mlat-client container is running. See the MLAT server table above for the correct server endpoint per exchange if you want to set it up.
 
-- **UUID**: Each feed profile gets its own UUID, stored in `/config/feed-uuid-<profile>` (e.g. `/config/feed-uuid-adsbexchange`). UUIDs are auto-generated on first run. To override, set `FEED_UUID_<PROFILE>` env vars (e.g. `FEED_UUID_ADSBEXCHANGE`). To view a profile's UUID: `docker exec readsb cat /config/feed-uuid-adsbexchange`
+- **UUID**: Each feed profile gets its own UUID, stored in `/config/feed-uuid-<profile>` (e.g. `/config/feed-uuid-adsbexchange`). UUIDs are auto-generated on first run and persisted across container restarts. They are also injected into the s6 container environment (e.g. `FEED_UUID_ADSBEXCHANGE`) for downstream services. To override, set `FEED_UUID_<PROFILE>` env vars. To view: `docker exec readsb cat /config/feed-uuid-adsbexchange`
 
 - **Checking feed status**:
   - ADSBx: https://adsbexchange.com/myip/
@@ -951,12 +957,14 @@ These defaults are applied automatically when feed profiles are active, but can 
 | `--max-range` | `450` | Maximum detection range in nautical miles. |
 | `--write-json-every` | `1` | JSON output write interval in seconds. Increase to `5` to reduce CPU/IO. |
 
-### Stats Upload Tuning
+### Stats & Upload Tuning
 
 | Variable | Default | Description |
 |---|---|---|
-| `FEED_STATS_ENABLED` | `true` | Master switch for stats logging and ADSBx upload. |
+| `FEED_STATS_ENABLED` | `true` | Master switch for console stats logging and ADSBx stats upload. |
 | `STATS_LOG_INTERVAL` | `120` | Console stats interval in seconds. Set `60` for 1-min updates, `300` for 5-min. |
+| `ADSBX_UPLOAD_INTERVAL` | `5` | ADSBx stats upload interval in seconds (matches official ADSBx feeder rate). Only active when `adsbexchange` is in `FEED_PROFILES`. |
+| `LOG_LEVEL` | `info` | Minimum log verbosity: `debug`, `info`, `warn`, `error`, `fatal`. Per-upload confirmations are `debug`-level. Set to `debug` to see them, or `warn` to suppress routine messages. |
 
 ### Location Accuracy
 
@@ -1005,7 +1013,9 @@ All log output uses syslog format so you can identify the source and severity of
 2026-04-02T11:38:21Z svc-readsb[decoder]: *8daa4b32584385ef2a7603346e29;
 2026-04-02T11:38:21Z svc-readsb[decoder]: hex:  aa4b32   CRC: 000000 fixed bits: 0 decode: ok
 2026-04-02T11:38:21Z svc-readsb[decoder]: RSSI:    -22.0 dBFS   reduce_forward: 1
-2026-04-02T11:38:22Z svc-feed-stats[info]: Starting stats service (interval=120s, adsbx_upload=true, JSON_DIR=/run/readsb)
+2026-04-02T11:38:22Z svc-feed-stats[info]: ADSBx stats upload enabled (UUID: a1b2c3d4-e5f6-7890-abcd-ef1234567890)
+2026-04-02T11:38:22Z svc-feed-stats[info]: ADSBx stats URL: https://www.adsbexchange.com/api/feeders/?feed=a1b2c3d4-e5f6-7890-abcd-ef1234567890
+2026-04-02T11:38:22Z svc-feed-stats[info]: Starting stats service (upload=5s, console=120s, JSON_DIR=/run/readsb)
 2026-04-02T11:40:22Z svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
 2026-04-02T12:38:22Z svc-autogain[info]: Gain 44.5 OK — 3.142% strong signals in range [0.5%, 7.0%]
 2026-04-02T11:38:52Z svc-feed-stats[warn]: /run/readsb/aircraft.json not updated in 45s.
@@ -1013,13 +1023,14 @@ All log output uses syslog format so you can identify the source and severity of
 
 | Service | Description |
 |---|---|
-| `init-readsb-config` | One-shot init: per-profile UUID generation, feed profile setup, USB permissions, geolocation |
+| `init-readsb-config` | One-shot init: per-profile UUID generation and persistence (disk + s6 env), feed profile setup, ADSBx stats URL, USB permissions, geolocation |
 | `svc-readsb` | Main readsb decoder service (startup config + decoder output) |
-| `svc-feed-stats` | Periodic console stats (every 2 min by default) + ADSBx stats upload when adsbexchange profile is active |
+| `svc-feed-stats` | Periodic console stats (every 2 min by default) + ADSBx RSSI/stats upload when `adsbexchange` profile is active. Both use the same UUID. Per-upload confirmations are `debug`-level. |
 | `svc-autogain` | Automatic gain optimization — adjusts RTL-SDR gain hourly based on strong signal analysis |
 
 | Priority | Meaning |
 |---|---|
+| `debug` | Verbose operational detail (e.g. per-upload ADSBx confirmations). Hidden at default `info` level. Set `LOG_LEVEL=debug` to see. |
 | `info` | Normal operational messages |
 | `warn` | Non-fatal issues that may need attention |
 | `error` | Errors that affect functionality |
@@ -1037,9 +1048,21 @@ docker logs readsb 2>&1 | grep 'init-readsb-config\['
 **Filter logs by priority:**
 
 ```bash
+docker logs readsb 2>&1 | grep '\[debug\]:'    # verbose upload confirmations (requires LOG_LEVEL=debug)
 docker logs readsb 2>&1 | grep '\[warn\]:'
 docker logs readsb 2>&1 | grep '\[error\]:\|\[fatal\]:'
 docker logs readsb 2>&1 | grep '\[decoder\]:'
+```
+
+**Log verbosity control:**
+
+Set `LOG_LEVEL` to control which messages appear. Default is `info`.
+
+```yaml
+environment:
+  - LOG_LEVEL=info     # default — stats summaries, startup info, warnings, errors
+  - LOG_LEVEL=debug    # all of the above + per-upload ADSBx confirmations
+  - LOG_LEVEL=warn     # warnings and errors only (quietest)
 ```
 
 ### Container won't start or exits immediately
@@ -1056,6 +1079,21 @@ docker logs readsb --tail 50 -f  # Follow last 50 lines
 - USB device not found: Verify RTL-SDR dongle is connected and restart container
 - Permission denied on `/dev/bus/usb`: Container may need elevated privileges or device permissions
 - Configuration error: Check `READSB_ARGS` syntax against [Customizing READSB_ARGS](#customizing-readsb_args)
+
+### ADSBx — linking your account
+
+This container feeds ADSBx via two pathways that share a **single UUID** from `/config/feed-uuid-adsbexchange`:
+
+1. **Beast feed** (`--net-connector` to port 30004) — primary ADS-B data connection (persistent TCP)
+2. **Stats upload** (`svc-feed-stats`) — RSSI/stats data (periodic HTTP POST every 5s, matching official ADSBx feeder)
+
+Both pathways use the same UUID so ADSBx sees one feeder. The stats URL is logged at startup:
+
+```
+https://www.adsbexchange.com/api/feeders/?feed=YOUR-UUID-HERE
+```
+
+**To link your account:** Visit https://adsbexchange.com/myip/ and **click the pre-selected Feed UID** at the top of the "Link your receiver" section.
 
 ### No aircraft data appearing
 

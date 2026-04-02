@@ -10,6 +10,7 @@ services:
       READSB_AUTO_LOCATION: 'true'
       READSB_AUTOGAIN: 'true'
       READSB_BIASTEE: 'false'
+      LOG_LEVEL: 'info'
     volumes:
       - config:/config
       - json:/run/readsb

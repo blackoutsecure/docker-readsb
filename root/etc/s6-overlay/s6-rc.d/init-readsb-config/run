@@ -91,12 +91,16 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
             lsiown "${readsb_user}:${readsb_user}" "${_profile_uuid_file}"
         fi
 
+        # Persist UUID to s6 container environment for downstream services
+        # e.g. FEED_UUID_ADSBEXCHANGE, FEED_UUID_ADSB_FI
+        printf '%s' "${_uuid_val}" > "${_s6_env}/FEED_UUID_${_env_suffix}"
+
         log_info "${_profile} UUID: ${_uuid_val}"
     done
 
     log_info "Active feed profiles: ${FEED_PROFILES:-adsbexchange}"
 
-    # Log feed status URLs for each active profile
+    # Log feed status URLs and account linking guidance for each active profile
     for _profile in "${FEED_PROFILE_LIST[@]}"; do
         _status_url=$(get_feed_status_url "${_profile}")
         if [[ -n "${_status_url}" ]]; then
@@ -104,10 +108,13 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         fi
     done
 
-    # Create stats temp directory
-    mkdir -p /run/readsb-stats
-    if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
-        lsiown -R "${readsb_user}:${readsb_user}" /run/readsb-stats
+    # ADSBx-specific: log stats URL and account linking guidance
+    if has_feed_profile "adsbexchange"; then
+        _adsbx_uuid=$(get_profile_uuid "adsbexchange")
+        if [[ -n "${_adsbx_uuid}" ]]; then
+            log_info "ADSBx stats URL: https://www.adsbexchange.com/api/feeders/?feed=${_adsbx_uuid}"
+        fi
+        log_info "ADSBx account linking: visit https://adsbexchange.com/myip/ and click the pre-selected Feed UID to link"
     fi
 fi
 
@@ -132,8 +139,11 @@ if [[ -z "${receiver_lat}" || -z "${receiver_lon}" ]] && [[ "${auto_location}" =
             geo_country=$(printf '%s' "${geo_json}" | grep -o '"country":"[^"]*"' | cut -d'"' -f4)
             geo_isp=$(printf '%s' "${geo_json}" | grep -o '"isp":"[^"]*"' | cut -d'"' -f4)
             geo_tz=$(printf '%s' "${geo_json}" | grep -o '"timezone":"[^"]*"' | cut -d'"' -f4)
-            log_info "auto-detected location via IP ${geo_ip}: ${receiver_lat}, ${receiver_lon}"
+            log_info "public IP: ${geo_ip}"
+            log_info "auto-detected location: ${receiver_lat}, ${receiver_lon}"
             log_info "approximate location: ${geo_city}, ${geo_region}, ${geo_country} (tz: ${geo_tz}, isp: ${geo_isp})"
+            # Persist public IP for downstream services
+            printf '%s' "${geo_ip}" > "${_s6_env}/PUBLIC_IP"
         else
             log_warn "IP geolocation failed (status: ${geo_status:-unknown})"
         fi

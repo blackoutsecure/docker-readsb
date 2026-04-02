@@ -5,65 +5,64 @@ set -euo pipefail
 SVC_NAME="svc-feed-stats"
 # shellcheck source=/usr/local/bin/log-functions.sh
 . /usr/local/bin/log-functions.sh
-
 # shellcheck source=/usr/local/bin/feed-profiles.sh
 . /usr/local/bin/feed-profiles.sh
-parse_feed_profiles
 
 feed_stats_enabled=${FEED_STATS_ENABLED:-true}
 
-# Self-disable: only sleep when stats are explicitly disabled
+# Self-disable: sleep when stats are explicitly disabled
 if [[ "${feed_stats_enabled,,}" != "true" ]]; then
-    log_info "Stats disabled (stats=${feed_stats_enabled}). Sleeping."
+    log_info "Stats disabled (FEED_STATS_ENABLED=${feed_stats_enabled}). Sleeping."
     exec sleep infinity
 fi
 
-# Configuration
+# ── Configuration ─────────────────────────────────────────────────────────────
 JSON_DIR="${READSB_RUN_DIR:-/run/readsb}"
 JSON_FILE="${JSON_DIR}/aircraft.json"
-TEMP_DIR="/run/readsb-stats"
-WAIT_TIME=5
 AGE_COMPLAIN=30
 AGE_INTERVAL=1800
 
-# ADSBx upload settings (only used when adsbexchange profile is active)
+# Console stats interval (default 2 minutes)
+STATS_LOG_INTERVAL=${STATS_LOG_INTERVAL:-120}
+
+# ADSBx stats upload interval (default 5 seconds, matching official ADSBx feeder)
+ADSBX_UPLOAD_INTERVAL=${ADSBX_UPLOAD_INTERVAL:-5}
 REMOTE_URL="https://adsbexchange.com/api/receive/"
-UUID_FILE="/config/feed-uuid-adsbexchange"
 MAX_CURL_TIME=10
+
+# ── ADSBx stats upload setup ─────────────────────────────────────────────────
+# When adsbexchange is an active feed profile, upload RSSI/stats data to ADSBx
+# using the SAME UUID as the beast feed (--net-connector). Both pathways share
+# a single identity so ADSBx sees one feeder, not two.
+parse_feed_profiles
 adsbx_upload=false
+adsbx_uuid=""
 
-mkdir -p "${TEMP_DIR}"
-
-# Enable ADSBx upload only when adsbexchange profile is active and UUID is valid
 if has_feed_profile "adsbexchange"; then
-    loop=0
-    while [[ ! -f "${UUID_FILE}" ]]; do
-        loop=$((loop + 1))
-        if [[ ${loop} -gt 12 ]]; then
-            log_warn "UUID file ${UUID_FILE} not found after 60s. ADSBx upload disabled."
-            break
-        fi
-        sleep 5
-    done
-
-    if [[ -f "${UUID_FILE}" ]]; then
-        UUID=$(tr -d '[:space:]' < "${UUID_FILE}")
-        if [[ ${UUID} =~ ^[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{4}-[A-Fa-f0-9]{12}$ ]]; then
-            adsbx_upload=true
-            log_info "ADSBx upload enabled -- UUID=${UUID}"
-        else
-            log_warn "Invalid UUID in ${UUID_FILE}: '${UUID}'. ADSBx upload disabled."
-        fi
+    # Prefer s6 env (set by init-readsb-config) over re-reading the file
+    adsbx_uuid="${FEED_UUID_ADSBEXCHANGE:-$(get_profile_uuid "adsbexchange")}"
+    if [[ -n "${adsbx_uuid}" ]]; then
+        adsbx_upload=true
+        log_info "ADSBx stats upload enabled (UUID: ${adsbx_uuid})"
+        log_info "ADSBx stats URL: https://www.adsbexchange.com/api/feeders/?feed=${adsbx_uuid}"
+    else
+        log_warn "adsbexchange profile active but no UUID found — stats upload disabled"
     fi
 fi
 
-# Periodic console stats interval (seconds) -- default 2 minutes
-STATS_LOG_INTERVAL=${STATS_LOG_INTERVAL:-120}
-last_stats_log=0
+if [[ "${adsbx_upload}" == "true" ]]; then
+    log_info "Starting stats service (upload=${ADSBX_UPLOAD_INTERVAL}s, console=${STATS_LOG_INTERVAL}s, JSON_DIR=${JSON_DIR})"
+else
+    log_info "Starting stats service (console=${STATS_LOG_INTERVAL}s, JSON_DIR=${JSON_DIR})"
+fi
 
-log_info "Starting stats service (interval=${STATS_LOG_INTERVAL}s, adsbx_upload=${adsbx_upload}, JSON_DIR=${JSON_DIR})"
+# ── Temp directory for upload staging ─────────────────────────────────────────
+STATS_TMP_DIR="/run/readsb-stats"
+if [[ "${adsbx_upload}" == "true" ]]; then
+    mkdir -p "${STATS_TMP_DIR}"
+fi
 
-# Wait for JSON file to appear
+# ── Wait for JSON file ───────────────────────────────────────────────────────
 stat_count=0
 while [[ ${stat_count} -lt 12 ]]; do
     if [[ -f "${JSON_FILE}" ]]; then
@@ -80,16 +79,28 @@ fi
 
 json_stat=$(stat --printf="%Y" "${JSON_FILE}" 2>/dev/null || echo "0")
 old_age=${AGE_COMPLAIN}
+last_console_stats=0
 
-# Random initial delay to reduce load spikes on the server
-sleep "$(( RANDOM % WAIT_TIME )).$(( RANDOM % 100 ))"
+# Random startup jitter to reduce load spikes on ADSBx servers
+if [[ "${adsbx_upload}" == "true" ]]; then
+    sleep "$(( RANDOM % ADSBX_UPLOAD_INTERVAL )).$(( RANDOM % 100 ))"
+fi
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
+# Loop at upload rate when uploading, otherwise at console stats rate
+if [[ "${adsbx_upload}" == "true" ]]; then
+    LOOP_INTERVAL=${ADSBX_UPLOAD_INTERVAL}
+else
+    LOOP_INTERVAL=${STATS_LOG_INTERVAL}
+fi
 
 while true; do
-    sleep ${WAIT_TIME} &
+    sleep ${LOOP_INTERVAL} &
     wait $!
 
     now=$(date +%s)
 
+    # ── JSON freshness check ──────────────────────────────────────────────
     new_stat=$(stat --printf="%Y" "${JSON_FILE}" 2>/dev/null || echo "")
     if [[ -n "${new_stat}" ]]; then
         json_stat=${new_stat}
@@ -103,94 +114,51 @@ while true; do
         old_age=${AGE_COMPLAIN}
     fi
 
-    # Determine if we need to snapshot JSON this iteration
-    stats_due=false
-    if [[ $(( now - last_stats_log )) -ge ${STATS_LOG_INTERVAL} ]]; then
-        stats_due=true
-    fi
-
-    # Skip JSON snapshot when neither stats nor upload need it
-    if [[ "${stats_due}" != "true" && "${adsbx_upload}" != "true" ]]; then
-        continue
-    fi
-
-    # Snapshot the JSON file for processing
-    rm -f "${TEMP_DIR}/tmp.json" "${TEMP_DIR}/new.json"
-    if ! cp "${JSON_FILE}" "${TEMP_DIR}/tmp.json" 2>/dev/null; then
-        sleep 2
-        continue
-    fi
-
-    # ── Periodic console stats (every STATS_LOG_INTERVAL seconds) ─────────────
-    if [[ "${stats_due}" == "true" ]]; then
-        _ac_count=$(jq -r '.aircraft | length // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
-        _ac_with_pos=$(jq -r '[.aircraft[] | select(.lat != null)] | length // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
-        _msgs=$(jq -r '.messages // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
-        log_info "stats: ${_ac_count} aircraft tracked (${_ac_with_pos} with position), ${_msgs} messages total"
-        last_stats_log=${now}
-    fi
-
-    # ── ADSBx upload (only when adsbexchange profile is active) ───────────────
+    # ── ADSBx stats upload ────────────────────────────────────────────────
+    # Matches official ADSBx format: enriches aircraft.json with UUID and
+    # RSSI stats, gzips, and POSTs to the ADSBx receive API.
     if [[ "${adsbx_upload}" == "true" ]]; then
-        # Read Raspberry Pi throttle status if available
-        status=""
-        if throttle=$(vcgencmd get_throttled 2>/dev/null | tr -d '"'); then
-            status="${throttle#*=}"
+        _tmp_in="${STATS_TMP_DIR}/tmp.json"
+        _tmp_out="${STATS_TMP_DIR}/upload.json"
+        _tmp_gz="${STATS_TMP_DIR}/upload.gz"
+
+        # Atomic copy to avoid reading a partial write from readsb
+        if cp "${JSON_FILE}" "${_tmp_in}" 2>/dev/null; then
+            # Build enriched payload with UUID and RSSI stats
+            if jq -c \
+                --arg UUID "${adsbx_uuid}" \
+                '
+                  .uuid = $UUID
+                | .rssi = ([ .aircraft[]?.rssi // empty ] | if length == 0 then 0 else add / length | floor end)
+                | ."rssi-min" = ([ .aircraft[]?.rssi // empty ] | if length == 0 then 0 else min | floor end)
+                | ."rssi-max" = ([ .aircraft[]?.rssi // empty ] | if length == 0 then 0 else max | floor end)
+                ' < "${_tmp_in}" > "${_tmp_out}" 2>/dev/null
+            then
+                gzip -c < "${_tmp_out}" > "${_tmp_gz}" 2>/dev/null
+
+                if curl -sS -m ${MAX_CURL_TIME} -X POST \
+                    -H "adsbx-uuid: ${adsbx_uuid}" \
+                    -H "Content-Encoding: gzip" \
+                    --data-binary @"${_tmp_gz}" \
+                    "${REMOTE_URL}" >/dev/null 2>&1
+                then
+                    log_debug "ADSBx stats upload OK"
+                else
+                    log_warn "ADSBx stats upload failed (curl exit $?)"
+                fi
+            fi
         fi
 
-        # Build the stats payload with jq
-        # Match the official adsbexchange-stats/json-status jq payload format.
-        # Official applies select(. >=0) to the whole rssi array (a no-op),
-        # effectively averaging all rssi values. We replicate that behavior.
-        if ! jq -c \
-            --arg STATUS "${status}" \
-            --arg UUID "${UUID}" \
-            '
-            .uuid=$UUID
-            | .v=$STATUS
-            | .rssi=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi] | select(. >= 0)
-                    | add / length | floor) end)
-            | ."rssi-min"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi] | select(. >= 0)
-                    | min | floor) end)
-            | ."rssi-max"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi] | select(. >= 0)
-                    | max | floor) end)
-            ' < "${TEMP_DIR}/tmp.json" > "${TEMP_DIR}/new.json" 2>/dev/null
-        then
-            sleep 15
-            continue
-        fi
+        rm -f "${_tmp_in}" "${_tmp_out}" "${_tmp_gz}"
+    fi
 
-        sleep 0.314
-        gzip -c < "${TEMP_DIR}/new.json" > "${TEMP_DIR}/upload.gz"
-        sleep 0.314
-
-        # Upload aircraft data to ADSBx
-        # Match official adsbexchange-stats/json-status curl exactly:
-        # - Header uses "Content_Encoding" (underscore, not hyphen) per upstream
-        # - No Content-Type header
-        # - Data via stdin redirect (--data-binary @-)
-        _curl_body=""
-        _curl_rc=0
-        _upload_size=$(stat --printf="%s" "${TEMP_DIR}/upload.gz" 2>/dev/null || echo "?")
-        _curl_body=$(curl -m ${MAX_CURL_TIME} -sS -o - -w "\n%{http_code}" -X POST \
-            -H "adsbx-uuid: ${UUID}" \
-            -H "Content_Encoding: gzip" \
-            --data-binary @- \
-            "${REMOTE_URL}" < "${TEMP_DIR}/upload.gz" 2>&1) || _curl_rc=$?
-        _http_code="${_curl_body##*$'\n'}"
-        _resp_body="${_curl_body%$'\n'*}"
-        if [[ ${_curl_rc} -ne 0 ]]; then
-            log_warn "ADSBx data upload failed (curl exit ${_curl_rc}): ${_resp_body}"
-            sleep $(( 5 + RANDOM % 15 ))
-        elif [[ "${_http_code}" =~ ^2 ]]; then
-            log_info "ADSBx data upload OK (HTTP ${_http_code}, ${_upload_size}B gz)"
-        else
-            log_warn "ADSBx data upload rejected (HTTP ${_http_code}): ${_resp_body}"
-        fi
-
-
+    # ── Periodic console stats ────────────────────────────────────────────
+    elapsed=$(( now - last_console_stats ))
+    if [[ ${elapsed} -ge ${STATS_LOG_INTERVAL} ]]; then
+        _ac_count=$(jq -r '.aircraft | length // 0' < "${JSON_FILE}" 2>/dev/null || echo "?")
+        _ac_with_pos=$(jq -r '[.aircraft[] | select(.lat != null)] | length // 0' < "${JSON_FILE}" 2>/dev/null || echo "?")
+        _msgs=$(jq -r '.messages // 0' < "${JSON_FILE}" 2>/dev/null || echo "?")
+        log_info "stats: ${_ac_count} aircraft tracked (${_ac_with_pos} with position), ${_msgs} messages total"
+        last_console_stats=${now}
     fi
 done
