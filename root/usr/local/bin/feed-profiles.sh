@@ -62,3 +62,23 @@ get_mlat_server() {
         *)              echo "" ;;
     esac
 }
+
+# ── Profiles requiring separate containers (not supported via --net-connector) ──
+# These aggregators use proprietary binaries/protocols and require a dedicated
+# sidecar container that reads Beast data from readsb on port 30005.
+#
+# FlightAware — requires piaware container with a feeder-id.
+#   Upstream: https://github.com/flightaware/piaware
+#   TODO: Create blackoutsecure/piaware container image.
+#
+# FlightRadar24 — requires fr24feed container with a sharing key.
+#   Upstream: https://www.flightradar24.com/share-your-data
+#   TODO: Create blackoutsecure/fr24feed container image.
+#
+# Radarbox — requires rbfeeder container with a sharing key.
+#   Upstream: https://www.radarbox.com/sharing-data
+#   TODO: Create blackoutsecure/rbfeeder container image.
+#
+# Planefinder — requires pfclient container with a share code.
+#   Upstream: https://planefinder.net/sharing/
+#   TODO: Create blackoutsecure/pfclient container image.

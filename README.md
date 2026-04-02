@@ -537,6 +537,20 @@ volumes:
   readsb-run:
 ```
 
+### Services Requiring Separate Containers
+
+> [!NOTE]
+> **TO DO** — Sidecar container images for the services listed below are planned but not yet available. Compose examples and documentation will be added as each image is published.
+
+Some aggregators use proprietary protocols or require authentication that cannot be handled via a simple `--net-connector` feed profile. These require running a dedicated sidecar container that reads Beast data from `readsb:30005`.
+
+| Service | Container | Auth | Status | Notes |
+|---|---|---|---|---|
+| **FlightAware** | [flightaware/piaware](https://github.com/flightaware/piaware) | `feeder-id` | 🔜 Planned | Connects to `readsb:30005` for Beast input. Handles auth, feeding, and MLAT independently. |
+| **FlightRadar24** | fr24feed | `sharing-key` | 🔜 Planned | Proprietary binary. Connects to `readsb:30005` in AVR/Beast mode. |
+| **Radarbox** | rbfeeder | `sharing-key` | 🔜 Planned | Proprietary binary. Connects to `readsb:30005` in Beast mode. |
+| **Planefinder** | pfclient | `share-code` | 🔜 Planned | Proprietary binary. Connects to `readsb:30005` in Beast mode. |
+
 ### Notes
 
 - **MLAT**: MLAT positioning requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. See the MLAT server table above for the correct server endpoint per exchange.
