@@ -164,6 +164,9 @@ if enumerate_sdr_dongles; then
     if [[ -n "${SDR_1090_INDEX}" ]]; then
         log_info "1090 MHz dongle: device ${SDR_1090_INDEX} (serial: ${SDR_1090_SERIAL:-n/a}, mode: ${SDR_MODE})"
         printf '%s' "${SDR_1090_INDEX}" > "${_s6_env}/SDR_1090_INDEX"
+        if [[ -n "${SDR_1090_SERIAL}" ]]; then
+            printf '%s' "${SDR_1090_SERIAL}" > "${_s6_env}/SDR_1090_SERIAL"
+        fi
     fi
 
     if [[ "${SDR_UAT_DETECTED}" == "true" ]]; then
@@ -180,6 +183,11 @@ if enumerate_sdr_dongles; then
         log_warn "Multiple RTL-SDR dongles found but none tagged as UAT (serial containing '978' or 'uat')"
         log_warn "Set 1090 dongle manually: READSB_DEVICE=<index|serial>"
         log_warn "Tag UAT dongle serial: rtl_eeprom -d <N> -s 00000978"
+    fi
+
+    if [[ "${SDR_MODE}" == "auto" && ${SDR_DONGLE_COUNT} -ge 2 && -z "${SDR_1090_INDEX}" ]]; then
+        log_warn "No 1090 MHz dongle identified among ${SDR_DONGLE_COUNT} devices. readsb will use the first device."
+        log_warn "Set READSB_DEVICE=<serial|index> to explicitly assign the 1090 dongle."
     fi
 else
     log_warn "SDR enumeration failed (lsusb not found or no USB devices)"

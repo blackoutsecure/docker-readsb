@@ -68,14 +68,25 @@ enumerate_sdr_dongles() {
 
     SDR_MODE="auto"
 
-    if command -v rtl_test >/dev/null 2>&1; then
+    if command -v rtl_eeprom >/dev/null 2>&1 || command -v rtl_test >/dev/null 2>&1; then
         local idx=0
         while [[ ${idx} -lt ${SDR_DONGLE_COUNT} ]]; do
-            local serial
-            serial=$(rtl_test -d "${idx}" -t 2>&1 | sed -n 's/.*SN:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1 || true)
+            local serial=""
 
-            if [[ -z "${serial}" ]]; then
-                serial=$(rtl_eeprom -d "${idx}" 2>&1 | sed -n 's/.*Serial number:[[:space:]]*\([^[:space:]]*\).*/\1/p' | head -1 || true)
+            # rtl_eeprom reads the EEPROM and exits cleanly (preferred).
+            # "Serial number:" appears once per invocation for the target device,
+            # unlike the device listing header which shows SN for ALL dongles.
+            if command -v rtl_eeprom >/dev/null 2>&1; then
+                serial=$(timeout 5 rtl_eeprom -d "${idx}" 2>&1 \
+                    | sed -n 's/^Serial number:[[:space:]]*//p' | head -1 || true)
+            fi
+
+            # Fallback: parse rtl_test "Using device" line.  Do NOT match the
+            # device listing header ("SN: ...") -- it shows every dongle's serial
+            # and head -1 would always return device 0's value.
+            if [[ -z "${serial}" ]] && command -v rtl_test >/dev/null 2>&1; then
+                serial=$(timeout 5 rtl_test -d "${idx}" -t 2>&1 \
+                    | sed -n 's/.*Using device.*SN \([^)]*\)).*/\1/p' | head -1 || true)
             fi
 
             local serial_lower="${serial,,}"

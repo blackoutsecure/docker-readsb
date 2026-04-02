@@ -84,14 +84,23 @@ if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
     readsb_args+=(--gain auto)
 fi
 
+# Suppress per-message decoder output unless user explicitly wants it (--debug / no --quiet).
+if ! has_readsb_opt "--quiet" && ! has_readsb_opt "--debug"; then
+    readsb_args+=(--quiet)
+fi
+
 # Apply SDR device assignment (manual READSB_DEVICE or auto-detected SDR_1090_INDEX)
 if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--device"; then
     if [[ -n "${READSB_DEVICE:-}" ]]; then
         readsb_args+=(--device "${READSB_DEVICE}")
         log_info "Using manually assigned 1090 MHz dongle: --device ${READSB_DEVICE}"
+    elif [[ -n "${SDR_1090_SERIAL:-}" ]]; then
+        # Prefer serial over index: serial is stable across reboots
+        readsb_args+=(--device "${SDR_1090_SERIAL}")
+        log_info "Using auto-detected 1090 MHz dongle: --device ${SDR_1090_SERIAL} (serial)"
     elif [[ -n "${SDR_1090_INDEX:-}" ]]; then
         readsb_args+=(--device "${SDR_1090_INDEX}")
-        log_info "Using auto-detected 1090 MHz dongle: --device ${SDR_1090_INDEX}"
+        log_info "Using auto-detected 1090 MHz dongle: --device ${SDR_1090_INDEX} (index)"
     fi
 fi
 
