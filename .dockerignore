@@ -26,7 +26,6 @@ local/
 *.o
 *.so
 *.a
-*.sh
 *.log
 .tmp-config/
 tmp/
@@ -34,3 +33,6 @@ tmp/
 # Assets (include in image)
 !logo.png
 !LICENSE
+
+# Ensure shell scripts in root overlay are included
+!root/
