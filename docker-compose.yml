@@ -8,6 +8,7 @@ services:
       TZ: Etc/UTC
       READSB_ARGS: '--net --device-type rtlsdr'
       FEED_PROFILES: 'adsbexchange'
+      READSB_AUTO_LOCATION: 'true'
     volumes:
       - config:/config
       - json:/run/readsb

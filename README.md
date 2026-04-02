@@ -246,6 +246,9 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e READSB_ARGS=` | Additional arguments for readsb | Optional |
 | `-e PUID=911` | User ID for non-root operation | Optional |
 | `-e PGID=911` | Group ID for non-root operation | Optional |
+| `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_ARGS`. | Optional |
+| `-e FEED_LON=` | Receiver longitude (e.g. `-122.3321`). Fallback if `--lon` not in `READSB_ARGS`. | Optional |
+| `-e READSB_AUTO_LOCATION=true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` not set. | Optional |
 
 ### Storage Mounts
 
@@ -402,6 +405,7 @@ Setting `FEED_PROFILES` activates data forwarding to one or more ADS-B data aggr
 | `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
 | `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_ARGS`. |
 | `FEED_LON` | (empty) | Receiver longitude in decimal degrees. Used as fallback if `--lon` is not in `READSB_ARGS`. |
+| `READSB_AUTO_LOCATION` | `true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` are not set. Set to `false` to disable. |
 
 ### Supported Profiles — Feed Connectors
 
@@ -543,6 +547,10 @@ volumes:
   - ADSBx: https://adsbexchange.com/myip/
   - adsb.fi: https://adsb.fi/
   - airplanes.live: https://airplanes.live/
+
+> **Note:** IP-based geolocation is approximate (typically city-level accuracy). Elevation is ground-level at the detected coordinates. For best MLAT results, set your exact coordinates manually.
+
+> **Note on altitude:** The auto-detected altitude represents **ground elevation** at the detected coordinates, not your antenna height above sea level. For accurate MLAT, your altitude should include the height of your antenna above ground. For example, if ground elevation is `50m` and your antenna is on a `10m` rooftop mast, set `MLAT_CLIENT_ALT=60m`. When relying on auto-detection, consider adding your antenna height manually for better multilateration accuracy.
 
 ---
 

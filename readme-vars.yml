@@ -38,6 +38,7 @@ opt_param_env_vars:
   - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978)"}
   - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_ARGS)"}
   - {env_var: "FEED_LON", env_value: "", desc: "Receiver longitude (fallback if --lon not in READSB_ARGS)"}
+  - {env_var: "READSB_AUTO_LOCATION", env_value: "true", desc: "Auto-detect location via IP geolocation when FEED_LAT/FEED_LON not set"}
 
 # optional parameters
 optional_parameters: |

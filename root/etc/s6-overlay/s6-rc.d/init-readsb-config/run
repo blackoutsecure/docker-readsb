@@ -72,3 +72,44 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         lsiown -R "${readsb_user}:${readsb_user}" /run/adsbexchange-stats
     fi
 fi
+
+# ── Auto-location detection ──────────────────────────────────────────────────
+# Detect receiver location via IP geolocation when FEED_LAT/FEED_LON not set.
+# Explicit FEED_LAT/FEED_LON always take priority.
+receiver_lat="${FEED_LAT:-}"
+receiver_lon="${FEED_LON:-}"
+auto_location="${READSB_AUTO_LOCATION:-true}"
+
+if [[ -z "${receiver_lat}" || -z "${receiver_lon}" ]] && [[ "${auto_location}" =~ ^(true|yes|1)$ ]]; then
+    # NOTE: ip-api.com free tier only supports HTTP — HTTPS requires a paid plan.
+    # This request sends only the container's public IP; no PII is transmitted.
+    if geo_json=$(curl -sS -m 5 "http://ip-api.com/json/?fields=status,query,lat,lon,city,regionName,country,isp,timezone" 2>/dev/null); then
+        geo_status=$(printf '%s' "${geo_json}" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+        if [[ "${geo_status}" == "success" ]]; then
+            geo_ip=$(printf '%s' "${geo_json}" | grep -o '"query":"[^"]*"' | cut -d'"' -f4)
+            receiver_lat=$(printf '%s' "${geo_json}" | grep -o '"lat":[0-9.eE+-]*' | cut -d: -f2)
+            receiver_lon=$(printf '%s' "${geo_json}" | grep -o '"lon":[0-9.eE+-]*' | cut -d: -f2)
+            geo_city=$(printf '%s' "${geo_json}" | grep -o '"city":"[^"]*"' | cut -d'"' -f4)
+            geo_region=$(printf '%s' "${geo_json}" | grep -o '"regionName":"[^"]*"' | cut -d'"' -f4)
+            geo_country=$(printf '%s' "${geo_json}" | grep -o '"country":"[^"]*"' | cut -d'"' -f4)
+            geo_isp=$(printf '%s' "${geo_json}" | grep -o '"isp":"[^"]*"' | cut -d'"' -f4)
+            geo_tz=$(printf '%s' "${geo_json}" | grep -o '"timezone":"[^"]*"' | cut -d'"' -f4)
+            echo "[init-readsb-config] auto-detected location via IP ${geo_ip}: ${receiver_lat}, ${receiver_lon}"
+            echo "[init-readsb-config] approximate location: ${geo_city}, ${geo_region}, ${geo_country} (tz: ${geo_tz}, isp: ${geo_isp})"
+        else
+            echo "[init-readsb-config] WARNING: IP geolocation failed (status: ${geo_status:-unknown})"
+        fi
+    else
+        echo "[init-readsb-config] WARNING: IP geolocation request failed — network may be unavailable"
+    fi
+fi
+
+# Persist detected location in s6 environment for downstream services
+if [[ -n "${receiver_lat}" && -n "${receiver_lon}" ]]; then
+    _s6_env="/run/s6/container_environment"
+    printf '%s' "${receiver_lat}" > "${_s6_env}/FEED_LAT"
+    printf '%s' "${receiver_lon}" > "${_s6_env}/FEED_LON"
+    echo "[init-readsb-config] receiver location: ${receiver_lat}, ${receiver_lon}"
+else
+    echo "[init-readsb-config] no receiver location set (set FEED_LAT/FEED_LON or enable READSB_AUTO_LOCATION)"
+fi
