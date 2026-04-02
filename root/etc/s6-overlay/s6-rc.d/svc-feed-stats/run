@@ -28,7 +28,6 @@ AGE_INTERVAL=1800
 
 # ADSBx upload settings (only used when adsbexchange profile is active)
 REMOTE_URL="https://adsbexchange.com/api/receive/"
-STATUS_URL="https://adsbexchange.com/api/feed-status/"
 UUID_FILE="/config/feed-uuid-adsbexchange"
 MAX_CURL_TIME=10
 adsbx_upload=false
@@ -197,22 +196,6 @@ while true; do
             log_warn "ADSBx data upload rejected (HTTP ${_http_code}): ${_resp_body}"
         fi
 
-        # Send status ping so ADSBx knows the stats service is running
-        _curl_body=""
-        _curl_rc=0
-        _curl_body=$(curl -m ${MAX_CURL_TIME} -sS -o - -w "\n%{http_code}" -X POST \
-            -H "adsbx-uuid: ${UUID}" \
-            -H "Content-Type: application/json" \
-            -d "{\"uuid\":\"${UUID}\",\"lat\":${_feed_lat:-null},\"lon\":${_feed_lon:-null}}" \
-            "${STATUS_URL}" 2>&1) || _curl_rc=$?
-        _http_code="${_curl_body##*$'\n'}"
-        _resp_body="${_curl_body%$'\n'*}"
-        if [[ ${_curl_rc} -ne 0 ]]; then
-            log_warn "ADSBx status ping failed (curl exit ${_curl_rc}): ${_resp_body}"
-        elif [[ "${_http_code}" =~ ^2 ]]; then
-            log_info "ADSBx status ping OK (HTTP ${_http_code})"
-        else
-            log_warn "ADSBx status ping rejected (HTTP ${_http_code}): ${_resp_body}"
-        fi
+
     fi
 done
