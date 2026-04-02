@@ -16,6 +16,7 @@ post-provisioning: >-
       environment:
         - TZ=Etc/UTC
         - READSB_ARGS=--net --device-type rtlsdr
+        - READSB_AUTO_LOCATION=true
       ports:
         - '30001:30001'
         - '30002:30002'

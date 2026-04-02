@@ -50,6 +50,10 @@ fi
 
 log_info "Starting ADSBx stats upload -- UUID=${UUID}, JSON_DIR=${JSON_DIR}"
 
+# Periodic console stats interval (seconds)
+STATS_LOG_INTERVAL=300
+last_stats_log=0
+
 # Wait for JSON file to appear
 stat_count=0
 while [[ ${stat_count} -lt 12 ]]; do
@@ -126,6 +130,15 @@ while true; do
     then
         sleep 15
         continue
+    fi
+
+    # Periodic console stats (every STATS_LOG_INTERVAL seconds)
+    if [[ $(( now - last_stats_log )) -ge ${STATS_LOG_INTERVAL} ]]; then
+        _ac_count=$(jq -r '.aircraft | length // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
+        _ac_with_pos=$(jq -r '[.aircraft[] | select(.lat != null)] | length // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
+        _msgs=$(jq -r '.messages // 0' < "${TEMP_DIR}/tmp.json" 2>/dev/null || echo "?")
+        log_info "stats: ${_ac_count} aircraft tracked (${_ac_with_pos} with position), ${_msgs} messages total"
+        last_stats_log=${now}
     fi
 
     sleep 0.314

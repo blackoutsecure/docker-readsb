@@ -91,6 +91,7 @@ RUN apk add --no-cache \
         curl \
         jq \
         gzip \
+        rtl-sdr \
         usbutils
 
 COPY --link --from=builder /out/usr/local/ /usr/local/
@@ -106,3 +107,9 @@ RUN if [ -f /usr/local/share/readsb/build-metadata.env ]; then . /usr/local/shar
 
 EXPOSE 30001 30002 30003 30004 30005 30104
 VOLUME ["/config"]
+
+# Health check: verify aircraft.json exists and was updated within the last 60s
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD ["/bin/bash", "-c", \
+    "test -f /run/readsb/aircraft.json && \
+     find /run/readsb/aircraft.json -mmin -1 | grep -q ."]

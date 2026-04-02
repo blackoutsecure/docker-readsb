@@ -75,6 +75,12 @@ app_setup_block: |
   - `--lat 51.5 --lon -0.1` - Set location for range calculations
   - `--max-range 350` - Set maximum detection range (km)
 
+  **Health Monitoring**: The image includes a Docker `HEALTHCHECK` that verifies `aircraft.json` freshness every 30 seconds. Use `docker inspect --format='{{.State.Health.Status}}' readsb` to check status.
+
+  **Periodic Stats**: When the `adsbexchange` feed profile is active, `svc-feed-stats` logs a summary every 5 minutes including aircraft tracked, positions, and message count.
+
+  **RTL-SDR Tools**: The runtime image includes `rtl_test` and `rtl_eeprom` for dongle diagnostics and serial tagging. USB device permissions are fixed automatically during init.
+
   For all available options, see the [readsb documentation](https://github.com/wiedehopf/readsb).
 
 # hardware acceleration

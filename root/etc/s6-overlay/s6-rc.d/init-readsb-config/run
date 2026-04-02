@@ -12,6 +12,24 @@ readsb_run_dir=${READSB_RUN_DIR:-/run/readsb}
 readsb_config_dir=/config/readsb
 readsb_globe_history_dir=${readsb_config_dir}/globe_history
 
+# ── Default PUID/PGID for abc user ───────────────────────────────────────────
+# When running as the default abc user without explicit PUID/PGID, default to
+# the LSIO base image UID/GID (911) so downstream scripts and log output have
+# consistent values.
+if [[ "${readsb_user}" != "root" ]]; then
+    if [[ "${readsb_user}" == "abc" && -z ${PUID:-} ]]; then
+        export PUID=911
+    fi
+    if [[ "${readsb_user}" == "abc" && -z ${PGID:-} ]]; then
+        export PGID=911
+    fi
+fi
+
+# Persist PUID/PGID to s6 container environment for downstream services
+_s6_env="/run/s6/container_environment"
+printf '%s' "${PUID:-}" > "${_s6_env}/PUID"
+printf '%s' "${PGID:-}" > "${_s6_env}/PGID"
+
 mkdir -p \
     "${readsb_config_dir}" \
     "${readsb_globe_history_dir}" \
@@ -27,6 +45,13 @@ fi
 # shellcheck source=/usr/local/bin/feed-profiles.sh
 . /usr/local/bin/feed-profiles.sh
 parse_feed_profiles
+
+# Persist the effective FEED_PROFILES value to s6 container environment.
+# parse_feed_profiles defaults to 'adsbexchange' when FEED_PROFILES is unset.
+if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
+    _s6_env="/run/s6/container_environment"
+    printf '%s' "$(IFS=,; echo "${FEED_PROFILE_LIST[*]}")" > "${_s6_env}/FEED_PROFILES"
+fi
 
 if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     uuid_file="/config/feed-uuid"
@@ -61,6 +86,14 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
 
     log_info "Feed UUID: $(cat "${uuid_file}")"
     log_info "Active feed profiles: ${FEED_PROFILES:-adsbexchange}"
+
+    # Log feed status URLs for each active profile
+    for _profile in "${FEED_PROFILE_LIST[@]}"; do
+        _status_url=$(get_feed_status_url "${_profile}")
+        if [[ -n "${_status_url}" ]]; then
+            log_info "Verify ${_profile} feed: ${_status_url}"
+        fi
+    done
 
     # Create stats temp directory
     mkdir -p /run/adsbexchange-stats

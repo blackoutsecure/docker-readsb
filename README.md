@@ -53,6 +53,7 @@ Quick links:
 - [SDR Device Selection](#sdr-device-selection)
 - [Feed Profiles](#feed-profiles)
 - [Troubleshooting](#troubleshooting)
+- [Health Monitoring](#health-monitoring)
 - [Release & Versioning](#release--versioning)
 - [Support & Getting Help](#support--getting-help)
 - [References](#references)
@@ -318,6 +319,7 @@ For deployment via the web interface, use the deploy button in this repository. 
 | :----: | --- | :---: |
 | `-e TZ=Etc/UTC` | Timezone ([TZ database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)) | Optional |
 | `-e READSB_ARGS=` | Additional arguments for readsb | Optional |
+| `-e READSB_USER=abc` | Runtime user (default: `abc`). USB permissions are fixed automatically during init. | Optional |
 | `-e PUID=1000` | User ID for file ownership (LinuxServer.io base image standard) | Optional |
 | `-e PGID=1000` | Group ID for file ownership (LinuxServer.io base image standard) | Optional |
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
@@ -431,9 +433,13 @@ The container runs readsb with network support and automatic RTL-SDR device dete
 ### Key Features
 
 - **JSON Output**: ADS-B data is output as JSON to `/run/readsb/` and updated frequently
-- **RTL-SDR Support**: USB devices are auto-detected when passed to the container
+- **RTL-SDR Support**: USB devices are auto-detected when passed to the container; permissions are fixed automatically
 - **Aircraft Database**: Includes [tar1090 aircraft database](https://github.com/wiedehopf/tar1090-db) for accurate identification
 - **Automatic Gain Control**: Enabled by default for rtlsdr devices (configurable via `READSB_ARGS`)
+- **Docker HEALTHCHECK**: Built-in health monitoring — marks container unhealthy if `aircraft.json` stops updating
+- **Periodic Stats**: Logs aircraft count, positions, and message totals every 5 minutes
+- **Feed Status URLs**: Init logs include verification URLs for each active feed profile
+- **RTL-SDR Tools**: `rtl_test` and `rtl_eeprom` available inside the container for diagnostics and dongle tagging
 
 ### Customizing READSB_ARGS
 
@@ -667,8 +673,13 @@ Some aggregators use proprietary protocols or require authentication that cannot
 
 - **Checking feed status**:
   - ADSBx: https://adsbexchange.com/myip/
-  - adsb.fi: https://adsb.fi/
+  - adsb.fi: https://adsb.fi/status
   - airplanes.live: https://airplanes.live/
+  - plane.watch: https://plane.watch/
+  - flyitalyadsb: https://flyitalyadsb.com/
+  - radarplane: https://radarplane.com/
+
+  Feed verification URLs are also logged during container startup for each active profile.
 
 > **Note:** IP-based geolocation is approximate (typically city-level accuracy). Elevation is ground-level at the detected coordinates. For best MLAT results, set your exact coordinates manually.
 
@@ -689,20 +700,24 @@ All log output uses syslog format so you can identify the source and severity of
 ```
 2026-04-02T11:38:20Z init-readsb-config[info]: Feed UUID: 12345678-1234-1234-1234-123456789abc
 2026-04-02T11:38:20Z init-readsb-config[info]: Active feed profiles: adsbexchange,adsb-fi
+2026-04-02T11:38:20Z init-readsb-config[info]: Verify adsbexchange feed: https://adsbexchange.com/myip/
+2026-04-02T11:38:20Z init-readsb-config[info]: Verify adsb-fi feed: https://adsb.fi/status
+2026-04-02T11:38:20Z init-readsb-config[info]: fixed USB permissions: /dev/bus/usb/001/004
 2026-04-02T11:38:20Z init-readsb-config[info]: receiver location: 51.5074, -0.1278
 2026-04-02T11:38:21Z svc-readsb[info]: readsb container startup configuration
 2026-04-02T11:38:21Z svc-readsb[decoder]: *8daa4b32584385ef2a7603346e29;
 2026-04-02T11:38:21Z svc-readsb[decoder]: hex:  aa4b32   CRC: 000000 fixed bits: 0 decode: ok
 2026-04-02T11:38:21Z svc-readsb[decoder]: RSSI:    -22.0 dBFS   reduce_forward: 1
 2026-04-02T11:38:22Z svc-feed-stats[info]: Starting ADSBx stats upload -- UUID=12345678-...
+2026-04-02T11:43:22Z svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
 2026-04-02T11:38:52Z svc-feed-stats[warn]: /run/readsb/aircraft.json not updated in 45s.
 ```
 
 | Service | Description |
 |---|---|
-| `init-readsb-config` | One-shot init: UUID generation, feed profile setup, geolocation |
+| `init-readsb-config` | One-shot init: UUID generation, feed profile setup, USB permissions, geolocation |
 | `svc-readsb` | Main readsb decoder service (startup config + decoder output) |
-| `svc-feed-stats` | ADSBExchange stats upload loop |
+| `svc-feed-stats` | ADSBExchange stats upload loop + periodic console stats (every 5 min) |
 
 | Priority | Meaning |
 |---|---|
@@ -821,6 +836,71 @@ Then update client connections to use the new ports.
 - Check [upstream readsb documentation](https://github.com/wiedehopf/readsb)
 - Review container logs: `docker logs -f readsb`
 - Open an issue on [GitHub](https://github.com/blackoutsecure/docker-readsb/issues)
+
+---
+
+## Health Monitoring
+
+The container includes built-in health monitoring at multiple levels:
+
+### Docker HEALTHCHECK
+
+The image includes a `HEALTHCHECK` that verifies `aircraft.json` exists and was updated within the last 60 seconds. Docker marks the container as `unhealthy` after 3 consecutive failures. This check is **profile-agnostic** — the same healthcheck applies regardless of which feed profiles are active, since all profiles share the same underlying readsb decoder and `aircraft.json` output.
+
+| Setting | Value |
+|---|---|
+| Interval | 30s |
+| Timeout | 5s |
+| Start period | 60s |
+| Retries | 3 |
+
+```bash
+# Check container health status
+docker inspect --format='{{.State.Health.Status}}' readsb
+
+# View health check history
+docker inspect --format='{{json .State.Health}}' readsb | jq .
+```
+
+### s6 Service Supervision
+
+All long-running services are supervised by s6-overlay and automatically restarted on crash:
+
+```bash
+# Check individual service status (equivalent of systemctl status)
+docker exec readsb s6-svstat /run/service/svc-readsb
+docker exec readsb s6-svstat /run/service/svc-feed-stats
+```
+
+### Periodic Console Stats
+
+When the `adsbexchange` feed profile is active, `svc-feed-stats` logs a summary every 5 minutes:
+
+```
+svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
+```
+
+### Quick Status Commands
+
+```bash
+# Container health
+docker inspect --format='{{.State.Health.Status}}' readsb
+
+# Aircraft count
+docker exec readsb cat /run/readsb/aircraft.json | jq '.aircraft | length'
+
+# Feed UUID
+docker exec readsb cat /config/feed-uuid
+
+# Service uptime
+docker exec readsb s6-svstat /run/service/svc-readsb
+
+# RTL-SDR dongle test
+docker exec readsb rtl_test -t
+
+# Tag a dongle serial
+docker exec readsb rtl_eeprom -d 0 -s 00001090
+```
 
 ---
 

@@ -63,6 +63,21 @@ get_mlat_server() {
     esac
 }
 
+# Return the feed status/verification URL for a given profile.
+# Usage: get_feed_status_url "adsbexchange" -> URL or empty
+get_feed_status_url() {
+    local profile="$1"
+    case "${profile}" in
+        adsbexchange)   echo "https://adsbexchange.com/myip/" ;;
+        adsb-fi)        echo "https://adsb.fi/status" ;;
+        airplaneslive)  echo "https://airplanes.live/" ;;
+        planewatch)     echo "https://plane.watch/" ;;
+        flyitalyadsb)   echo "https://flyitalyadsb.com/" ;;
+        radarplane)     echo "https://radarplane.com/" ;;
+        *)              echo "" ;;
+    esac
+}
+
 # ── Profiles requiring separate containers (not supported via --net-connector) ──
 # These aggregators use proprietary binaries/protocols and require a dedicated
 # sidecar container that reads Beast data from readsb on port 30005.
