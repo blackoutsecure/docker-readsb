@@ -37,7 +37,7 @@ has_feed_profile() {
 get_feed_connector() {
     local profile="$1"
     case "${profile}" in
-        adsbexchange)   echo "feed1.adsbexchange.com,30004,beast_reduce_out,feed2.adsbexchange.com,64004" ;;
+        adsbexchange)   echo "feed1.adsbexchange.com,30004,beast_reduce_out" ;;
         adsb-fi)        echo "feed.adsb.fi,30004,beast_reduce_out" ;;
         airplaneslive)  echo "feed.airplanes.live,30004,beast_reduce_out" ;;
         planewatch)     echo "atc.plane.watch,30004,beast_reduce_out" ;;
@@ -45,6 +45,16 @@ get_feed_connector() {
         flyitalyadsb)   echo "dati.flyitalyadsb.com,4905,beast_reduce_out" ;;
         adsbhub)        echo "data.adsbhub.org,5002,beast_reduce_out" ;;
         radarplane)     echo "feed.radarplane.com,30001,beast_reduce_out" ;;
+        *)              echo "" ;;
+    esac
+}
+
+# Return secondary/failover --net-connector for profiles that have one.
+# Returns empty string if the profile has no failover endpoint.
+get_feed_connector_secondary() {
+    local profile="$1"
+    case "${profile}" in
+        adsbexchange)   echo "feed2.adsbexchange.com,30004,beast_reduce_out" ;;
         *)              echo "" ;;
     esac
 }

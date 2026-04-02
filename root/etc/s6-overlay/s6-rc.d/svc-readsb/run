@@ -126,6 +126,15 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
             _fc="${_fc},uuid=${_fp_uuid}"
         fi
         readsb_args+=(--net-connector "${_fc}")
+
+        # Add secondary/failover connector if the profile has one
+        _fc2=$(get_feed_connector_secondary "${_fp}")
+        if [[ -n "${_fc2}" ]]; then
+            if [[ -n "${_fp_uuid}" ]]; then
+                _fc2="${_fc2},uuid=${_fp_uuid}"
+            fi
+            readsb_args+=(--net-connector "${_fc2}")
+        fi
     done
 
     # UAT input connector (only if FEED_UAT_INPUT is set, e.g. "dump978:30978")
@@ -205,9 +214,13 @@ if [[ "${feed_active}" == "true" ]]; then
     log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
     for _fp in "${FEED_PROFILE_LIST[@]}"; do
         _fc=$(get_feed_connector "${_fp}")
+        _fc2=$(get_feed_connector_secondary "${_fp}")
         _ms=$(get_mlat_server "${_fp}")
         _fp_uuid=$(get_profile_uuid "${_fp}")
         log_kv "FEED[${_fp}]" "${_fc}"
+        if [[ -n "${_fc2}" ]]; then
+            log_kv "FEED[${_fp}:secondary]" "${_fc2}"
+        fi
         log_kv "UUID[${_fp}]" "${_fp_uuid:-missing}"
         if [[ -n "${_ms}" ]]; then
             log_kv "MLAT[${_fp}]" "${_ms} (use separate mlat-client container)"

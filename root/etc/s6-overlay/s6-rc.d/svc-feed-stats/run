@@ -28,6 +28,7 @@ AGE_INTERVAL=1800
 
 # ADSBx upload settings (only used when adsbexchange profile is active)
 REMOTE_URL="https://adsbexchange.com/api/receive/"
+STATUS_URL="https://adsbexchange.com/api/feed-status/"
 UUID_FILE="/config/feed-uuid-adsbexchange"
 MAX_CURL_TIME=10
 adsbx_upload=false
@@ -139,22 +140,30 @@ while true; do
         fi
 
         # Build the stats payload with jq
+        # Note: readsb RSSI values are negative dBFS (e.g. -3.2, -15.7).
+        # Filter with select(. < 0) to keep valid readings and exclude 0/null.
+        _feed_lat="${FEED_LAT:-}"
+        _feed_lon="${FEED_LON:-}"
         if ! jq -c \
             --arg STATUS "${status}" \
             --arg UUID "${UUID}" \
+            --arg LAT "${_feed_lat}" \
+            --arg LON "${_feed_lon}" \
             '
-            | ."uuid"=$UUID
-            | ."v"=$STATUS
-            | ."rssi"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi] | map(select(. >= 0))
+            .uuid=$UUID
+            | .v=$STATUS
+            | .lat=(if $LAT == "" then null else ($LAT | tonumber) end)
+            | .lon=(if $LON == "" then null else ($LON | tonumber) end)
+            | .rssi=(if (.aircraft | length <= 0) then 0
+                else ([.aircraft[].rssi // empty] | map(select(. < 0))
                     | if length == 0 then [0] else . end
                     | add / length | floor) end)
             | ."rssi-min"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi] | map(select(. >= 0))
+                else ([.aircraft[].rssi // empty] | map(select(. < 0))
                     | if length == 0 then [0] else . end
                     | min | floor) end)
             | ."rssi-max"=(if (.aircraft | length <= 0) then 0
-                else ([.aircraft[].rssi] | map(select(. >= 0))
+                else ([.aircraft[].rssi // empty] | map(select(. < 0))
                     | if length == 0 then [0] else . end
                     | max | floor) end)
             ' < "${TEMP_DIR}/tmp.json" > "${TEMP_DIR}/new.json" 2>/dev/null
@@ -167,13 +176,26 @@ while true; do
         gzip -c < "${TEMP_DIR}/new.json" > "${TEMP_DIR}/upload.gz"
         sleep 0.314
 
-        # Upload to ADSBx
-        if ! curl -m ${MAX_CURL_TIME} -sS -X POST \
+        # Upload aircraft data to ADSBx
+        _curl_resp=""
+        if ! _curl_resp=$(curl -m ${MAX_CURL_TIME} -sS -X POST \
             -H "adsbx-uuid: ${UUID}" \
+            -H "Content-Type: application/json" \
             -H "Content-Encoding: gzip" \
             --data-binary @"${TEMP_DIR}/upload.gz" \
-            "${REMOTE_URL}" 2>&1; then
+            "${REMOTE_URL}" 2>&1); then
+            log_warn "ADSBx data upload failed: ${_curl_resp}"
             sleep $(( 5 + RANDOM % 15 ))
+        fi
+
+        # Send status ping so ADSBx knows the stats service is running
+        _status_resp=""
+        if ! _status_resp=$(curl -m ${MAX_CURL_TIME} -sS -X POST \
+            -H "adsbx-uuid: ${UUID}" \
+            -H "Content-Type: application/json" \
+            -d "{\"uuid\":\"${UUID}\",\"lat\":${_feed_lat:-null},\"lon\":${_feed_lon:-null}}" \
+            "${STATUS_URL}" 2>&1); then
+            log_warn "ADSBx status ping failed: ${_status_resp}"
         fi
     fi
 done
