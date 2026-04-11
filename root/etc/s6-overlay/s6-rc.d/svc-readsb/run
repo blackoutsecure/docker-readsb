@@ -348,18 +348,6 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
         log_warn "Then reboot the host or run: sudo rmmod dvb_usb_rtl28xxu rtl2832 rtl2830"
     fi
 
-    # ── Pre-launch USB device availability check ──────────────────────────────
-    # Before launching readsb, verify the target RTL-SDR device can be opened.
-    # If the device is busy, skip launch and let the backoff timer handle retry.
-    if command -v rtl_test >/dev/null 2>&1; then
-        _test_device="${READSB_DEVICE:-${SDR_1090_SERIAL:-${SDR_1090_INDEX:-0}}}"
-        if ! timeout 5 rtl_test -d "${_test_device}" -t 2>&1 | head -5 | grep -q "Sampling at"; then
-            log_error "RTL-SDR device '${_test_device}' is not available (busy or missing)."
-            log_error "Incrementing fail count and exiting for backoff retry."
-            echo "$(( _fail_count + 1 ))" > "${_fail_count_file}"
-            exit 1
-        fi
-    fi
 fi
 
 # ── Exec readsb with syslog-format log prefixing ─────────────────────────────────

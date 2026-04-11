@@ -29,6 +29,8 @@ services:
       - '30004:30004'
       - '30005:30005'
       - '30104:30104'
+    cap_add:
+      - SYS_MODULE
     security_opt:
       - no-new-privileges:true
     tmpfs:
