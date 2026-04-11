@@ -39,11 +39,6 @@ RUN git clone --branch ${READSB_REPO_BRANCH} --single-branch --depth 1 ${READSB_
     printf 'BUILD_DATE=%s\nVERSION=%s\nVCS_REF=%s\nVCS_URL=%s\n' "${BUILD_DATE}" "${VERSION}" "${VCS_REF}" "${VCS_URL}" > /tmp/readsb-build-metadata.env && \
     rm -rf .git
 
-# Workaround: Fix upstream macro collision: readsb.h #define HUGE conflicts with musl math.h
-RUN if grep -q '^#define HUGE ' readsb.h 2>/dev/null; then \
-        sed -i '/^#define HUGE /i #undef HUGE' readsb.h; \
-    fi
-
 RUN set -e && \
     MARCH="" && \
     if [ "$(uname -m)" = "x86_64" ]; then MARCH=" -march=nehalem"; fi && \
