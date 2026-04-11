@@ -115,6 +115,31 @@ if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
     fi
 fi
 
+# ── Kernel DVB module removal ─────────────────────────────────────────────────
+# The dvb_usb_rtl28xxu kernel module auto-attaches to RTL2832U devices and
+# prevents userspace access (librtlsdr).  Attempt to unload it automatically
+# before bias-T or readsb tries to open the device.  On balenaOS the
+# io.balena.features.kernel-modules label grants rmmod access; on plain Docker
+# the container typically needs --privileged or SYS_MODULE capability.
+if [[ ${_dt_val} == "rtlsdr" ]] && [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
+    log_warn "Kernel module 'dvb_usb_rtl28xxu' is loaded — attempting automatic removal."
+    _mod_removed=false
+    for _mod in dvb_usb_rtl28xxu rtl2832 rtl2830; do
+        if [[ -d /sys/module/${_mod} ]]; then
+            if rmmod "${_mod}" 2>/dev/null; then
+                log_info "Removed kernel module '${_mod}'."
+                _mod_removed=true
+            else
+                log_warn "Failed to remove '${_mod}' (need --privileged or SYS_MODULE capability)."
+            fi
+        fi
+    done
+    if [[ "${_mod_removed}" == "true" ]]; then
+        # Allow device nodes to settle after module removal
+        sleep 2
+    fi
+fi
+
 # ── Bias-T ────────────────────────────────────────────────────────────────────
 # Enable bias-T power on the RTL-SDR dongle (for powered LNAs/active antennas).
 # Requires rtl_biast (provided by rtl-sdr package).
@@ -312,12 +337,11 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
         log_warn "Check host USB passthrough support and that the SDR is physically attached."
     fi
 
-    # ── Kernel DVB module conflict detection ──────────────────────────────────
-    # The dvb_usb_rtl28xxu kernel module auto-attaches to RTL2832U devices and
-    # prevents userspace access (librtlsdr). Warn the user to blacklist it.
+    # ── Kernel DVB module conflict detection (fallback) ──────────────────────
+    # If the earlier rmmod attempt failed, warn the user to fix it on the host.
     if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
-        log_warn "Kernel module 'dvb_usb_rtl28xxu' is loaded — it blocks userspace RTL-SDR access."
-        log_warn "On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
+        log_warn "Kernel module 'dvb_usb_rtl28xxu' is still loaded — it blocks userspace RTL-SDR access."
+        log_warn "Automatic removal failed. On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
         log_warn "  blacklist dvb_usb_rtl28xxu"
         log_warn "  blacklist rtl2832"
         log_warn "  blacklist rtl2830"
