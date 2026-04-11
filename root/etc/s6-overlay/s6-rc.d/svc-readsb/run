@@ -12,6 +12,23 @@ readsb_run_dir=${READSB_RUN_DIR:-/run/readsb}
 tar1090_db_path=${TAR1090_DB_PATH:-/usr/local/share/tar1090/aircraft.csv.gz}
 build_metadata_path=/usr/local/share/readsb/build-metadata.env
 
+# ── Restart backoff ───────────────────────────────────────────────────────────
+# Prevent tight crash loops when the SDR device is unavailable.  Track
+# consecutive failures via an ephemeral file in /run and apply a progressive
+# delay (5s → 10s → 15s … max 60s) before each attempt.
+_fail_count_file="/run/readsb-fail-count"
+_fail_count=0
+if [[ -f "${_fail_count_file}" ]]; then
+    _fail_count=$(tr -d '[:space:]' < "${_fail_count_file}")
+    _fail_count=${_fail_count:-0}
+fi
+if [[ ${_fail_count} -gt 0 ]]; then
+    _backoff=$(( _fail_count * 5 ))
+    [[ ${_backoff} -gt 60 ]] && _backoff=60
+    log_warn "Previous launch failed (attempt #${_fail_count}). Waiting ${_backoff}s before retry."
+    sleep "${_backoff}"
+fi
+
 # Import build metadata captured from upstream readsb so these values are
 # available to the service process in production.
 if [[ -r "${build_metadata_path}" ]]; then
@@ -114,6 +131,8 @@ if [[ ${_dt_val} == "rtlsdr" ]] && [[ "${READSB_BIASTEE:-false}" =~ ^(true|yes|1
         if ! rtl_biast "${_bt_args[@]}" 2>&1 | while IFS= read -r _line; do log_info "bias-T: ${_line}"; done; then
             log_warn "rtl_biast failed — bias-T may not be enabled. Check dongle support."
         fi
+        # Allow USB device to settle after rtl_biast releases it
+        sleep 1
     else
         log_warn "READSB_BIASTEE=true but rtl_biast not found. Install rtl-sdr package."
     fi
@@ -292,13 +311,49 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
         log_warn "/dev/bus/usb is present but contains no USB device nodes."
         log_warn "Check host USB passthrough support and that the SDR is physically attached."
     fi
+
+    # ── Kernel DVB module conflict detection ──────────────────────────────────
+    # The dvb_usb_rtl28xxu kernel module auto-attaches to RTL2832U devices and
+    # prevents userspace access (librtlsdr). Warn the user to blacklist it.
+    if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
+        log_warn "Kernel module 'dvb_usb_rtl28xxu' is loaded — it blocks userspace RTL-SDR access."
+        log_warn "On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
+        log_warn "  blacklist dvb_usb_rtl28xxu"
+        log_warn "  blacklist rtl2832"
+        log_warn "  blacklist rtl2830"
+        log_warn "Then reboot the host or run: sudo rmmod dvb_usb_rtl28xxu rtl2832 rtl2830"
+    fi
+
+    # ── Pre-launch USB device availability check ──────────────────────────────
+    # Before launching readsb, verify the target RTL-SDR device can be opened.
+    # If the device is busy, skip launch and let the backoff timer handle retry.
+    if command -v rtl_test >/dev/null 2>&1; then
+        _test_device="${READSB_DEVICE:-${SDR_1090_SERIAL:-${SDR_1090_INDEX:-0}}}"
+        if ! timeout 5 rtl_test -d "${_test_device}" -t 2>&1 | head -5 | grep -q "Sampling at"; then
+            log_error "RTL-SDR device '${_test_device}' is not available (busy or missing)."
+            log_error "Incrementing fail count and exiting for backoff retry."
+            echo "$(( _fail_count + 1 ))" > "${_fail_count_file}"
+            exit 1
+        fi
+    fi
 fi
 
 # ── Exec readsb with syslog-format log prefixing ─────────────────────────────────
 # Pipe readsb stdout/stderr through awk to tag every line with a syslog-format
 # prefix including a timestamp (readsb outputs decoder data to stderr).
 LOG_PIPE=$(log_pipe_cmd decoder)
+# Reset fail counter — if we get past all pre-checks the device is accessible.
+echo "0" > "${_fail_count_file}"
 
+# Trap to increment fail count if readsb exits abnormally.  On normal exit (0)
+# the counter stays at 0; on crash it increments for the next restart's backoff.
+_on_exit() {
+    local rc=$?
+    if [[ ${rc} -ne 0 ]]; then
+        echo "$(( _fail_count + 1 ))" > "${_fail_count_file}"
+    fi
+}
+trap _on_exit EXIT
 if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
     lsiown -R "${readsb_user}:${readsb_user}" "${readsb_run_dir}"
     exec s6-setuidgid "${readsb_user}" /bin/bash -c "
