@@ -30,8 +30,6 @@ services:
       - '30005:30005'
       - '30104:30104'
     privileged: true
-    security_opt:
-      - no-new-privileges:true
     tmpfs:
       - /tmp
       - /run:exec
