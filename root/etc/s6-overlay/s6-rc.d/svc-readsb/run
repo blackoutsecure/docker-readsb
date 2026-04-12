@@ -350,6 +350,32 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
 
 fi
 
+# ── Sysfs USB unbind (last resort before exec) ───────────────────────────────
+# If the dvb_usb_rtl28xxu kernel driver is still bound to any RTL2832U device,
+# unbind it via sysfs.  This is more targeted than rmmod: it releases only the
+# specific USB interfaces the DVB driver claimed, so librtlsdr can open them.
+# Works even when rmmod fails (module has refcount, missing CAP_SYS_MODULE, etc).
+if [[ ${_dt_val} == "rtlsdr" ]]; then
+    _dvb_driver_path="/sys/bus/usb/drivers/dvb_usb_rtl28xxu"
+    if [[ -d "${_dvb_driver_path}" ]]; then
+        _unbound=false
+        for _bound in "${_dvb_driver_path}"/*/; do
+            _intf=$(basename "${_bound}")
+            # Skip non-interface entries (module, bind, unbind, etc.)
+            [[ "${_intf}" == *:* ]] || continue
+            if echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null; then
+                log_info "Unbound USB interface '${_intf}' from dvb_usb_rtl28xxu via sysfs."
+                _unbound=true
+            else
+                log_warn "Failed to unbind '${_intf}' from dvb_usb_rtl28xxu via sysfs."
+            fi
+        done
+        if [[ "${_unbound}" == "true" ]]; then
+            sleep 1
+        fi
+    fi
+fi
+
 # ── Exec readsb with syslog-format log prefixing ─────────────────────────────────
 # Pipe readsb stdout/stderr through awk to tag every line with a syslog-format
 # prefix including a timestamp (readsb outputs decoder data to stderr).
