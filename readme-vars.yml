@@ -37,6 +37,8 @@ opt_param_env_vars:
   - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable periodic console stats logging and ADSBx RSSI/stats upload. Console stats log every STATS_LOG_INTERVAL seconds. ADSBx upload activates automatically when adsbexchange is in FEED_PROFILES, using the same UUID as the beast feed."}
   - {env_var: "STATS_LOG_INTERVAL", env_value: "120", desc: "Console stats logging interval in seconds. Default is 120 (every 2 minutes). Set to e.g. 60 for 1 min or 300 for 5 min."}
   - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978). Requires blackoutsecure/dump978 sidecar."}
+  - {env_var: "READSB_NET_BI_PORT", env_value: "", desc: "Beast protocol input port(s), comma-separated (e.g. 30004,30104). Maps to --net-bi-port. Ignored if --net-bi-port is already in READSB_ARGS."}
+  - {env_var: "READSB_NET_BO_PORT", env_value: "", desc: "Beast protocol output port(s), comma-separated (e.g. 30005). Maps to --net-bo-port. Ignored if --net-bo-port is already in READSB_ARGS."}
   - {env_var: "READSB_DEVICE", env_value: "", desc: "Manual: RTL-SDR device index or serial for 1090 MHz (overrides auto-detection)"}
   - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_ARGS)"}
   - {env_var: "FEED_LON", env_value: "", desc: "Receiver longitude (fallback if --lon not in READSB_ARGS)"}

@@ -155,6 +155,8 @@ services:
     environment:
       - TZ=Etc/UTC
       - READSB_ARGS=--net --device-type rtlsdr
+      - READSB_NET_BI_PORT=30004,30104  # Beast input ports
+      - READSB_NET_BO_PORT=30005        # Beast output port
       - READSB_AUTOGAIN=true          # automatic gain optimization (recommended)
       # - READSB_BIASTEE=true          # enable for powered LNAs (e.g. SAWbird+)
       - LOG_LEVEL=info                 # debug | info | warn | error | fatal
@@ -332,6 +334,8 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e READSB_USER=abc` | Runtime user (default: `abc`). USB permissions are fixed automatically during init. | Optional |
 | `-e PUID=1000` | User ID for file ownership (LinuxServer.io base image standard) | Optional |
 | `-e PGID=1000` | Group ID for file ownership (LinuxServer.io base image standard) | Optional |
+| `-e READSB_NET_BI_PORT=` | Beast protocol input port(s), comma-separated (e.g. `30004,30104`). Maps to `--net-bi-port`. Ignored if `--net-bi-port` is already in `READSB_ARGS`. | Optional |
+| `-e READSB_NET_BO_PORT=` | Beast protocol output port(s), comma-separated (e.g. `30005`). Maps to `--net-bo-port`. Ignored if `--net-bo-port` is already in `READSB_ARGS`. | Optional |
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
 | `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
 | `-e FEED_UUID_ADSBEXCHANGE=` | Per-profile UUID override. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Stored in `/config/feed-uuid-<profile>`. | Optional |
@@ -470,6 +474,10 @@ The `READSB_ARGS` environment variable allows you to customize readsb behavior. 
 # RTL-SDR with default autogain (recommended)
 -e READSB_ARGS="--net --device-type rtlsdr"
 
+# Set Beast input/output ports via env vars (cleaner than embedding in READSB_ARGS)
+-e READSB_NET_BI_PORT="30004,30104"
+-e READSB_NET_BO_PORT="30005"
+
 # Network-only mode (no local RTL-SDR)
 -e READSB_ARGS="--net --lat 51.5 --lon -0.1"
 
@@ -541,6 +549,8 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 | `FEED_LON` | (empty) | Receiver longitude in decimal degrees. Used as fallback if `--lon` is not in `READSB_ARGS`. |
 | `READSB_AUTO_LOCATION` | `true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` are not set. Set to `false` to disable. |
 | `READSB_AUTOGAIN` | `true` | Automatic gain optimization. Analyzes strong signal percentage hourly and adjusts gain. See [Automatic Gain Optimization](#automatic-gain-optimization). |
+| `READSB_NET_BI_PORT` | (none) | Beast protocol input port(s), comma-separated (e.g. `30004,30104`). Maps to `--net-bi-port`. |
+| `READSB_NET_BO_PORT` | (none) | Beast protocol output port(s), comma-separated (e.g. `30005`). Maps to `--net-bo-port`. |
 | `READSB_BIASTEE` | `false` | Bias-T DC power for active antennas. See [Bias-T Power for Active Antennas](#bias-t-power-for-active-antennas). |
 | `LOG_LEVEL` | `info` | Minimum log verbosity: `debug`, `info`, `warn`, `error`, `fatal`. Set to `debug` for verbose operational detail. |
 
@@ -1007,6 +1017,8 @@ These defaults are applied automatically when feed profiles are active, but can 
 
 | Parameter | Default | Description |
 |---|---|---|
+| `--net-bi-port` | (none) | Beast protocol input port(s). Set via `READSB_NET_BI_PORT` env var or `--net-bi-port` in `READSB_ARGS`. |
+| `--net-bo-port` | (none) | Beast protocol output port(s). Set via `READSB_NET_BO_PORT` env var or `--net-bo-port` in `READSB_ARGS`. |
 | `--net-beast-reduce-interval` | `0.5` | Seconds between reduced beast output updates. Lower = more data, more bandwidth. |
 | `--net-heartbeat` | `60` | Seconds between TCP keepalive heartbeats. |
 | `--net-ro-size` | `1280` | Raw output buffer size in bytes. |

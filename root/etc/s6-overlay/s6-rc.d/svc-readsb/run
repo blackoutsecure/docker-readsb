@@ -231,6 +231,16 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         fi
     fi
 
+    # ── Beast-input port (READSB_NET_BI_PORT) ─────────────────────────────────
+    if [[ -n "${READSB_NET_BI_PORT:-}" ]] && ! has_readsb_opt "--net-bi-port"; then
+        readsb_args+=(--net-bi-port "${READSB_NET_BI_PORT}")
+    fi
+
+    # ── Beast-output port (READSB_NET_BO_PORT) ────────────────────────────────
+    if [[ -n "${READSB_NET_BO_PORT:-}" ]] && ! has_readsb_opt "--net-bo-port"; then
+        readsb_args+=(--net-bo-port "${READSB_NET_BO_PORT}")
+    fi
+
     # Shared feed tuning args -- only add if user hasn't already specified them
     if ! has_readsb_opt "--net-beast-reduce-interval"; then
         readsb_args+=(--net-beast-reduce-interval 0.5)
@@ -301,6 +311,8 @@ else
     log_kv "PUBLIC_IP" "${PUBLIC_IP:-unknown}"
     log_kv "AUTOGAIN" "${READSB_AUTOGAIN:-true}"
     log_kv "BIASTEE" "${READSB_BIASTEE:-false}"
+    log_kv "NET_BI_PORT" "${READSB_NET_BI_PORT:-unset}"
+    log_kv "NET_BO_PORT" "${READSB_NET_BO_PORT:-unset}"
     if [[ "${feed_active}" == "true" ]]; then
         log_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
         log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
@@ -388,18 +400,17 @@ fi
 
 # ── Wait for listening ports to be available ──────────────────────────────────
 # After a crash, TCP sockets may linger in TIME_WAIT.  Wait up to 15 seconds
-# for the ports specified in --net-bi-port to become available.
+# for the ports specified in --net-bi-port / --net-bo-port to become available.
 _wait_for_ports() {
     local _ports_csv=""
     local _prev=""
     for _tok in "${readsb_args[@]}"; do
-        if [[ "${_prev}" == "--net-bi-port" ]]; then
-            _ports_csv="${_tok}"
-            break
-        fi
-        if [[ "${_tok}" == "--net-bi-port="* ]]; then
-            _ports_csv="${_tok#--net-bi-port=}"
-            break
+        if [[ "${_prev}" == "--net-bi-port" || "${_prev}" == "--net-bo-port" ]]; then
+            _ports_csv="${_ports_csv:+${_ports_csv},}${_tok}"
+        elif [[ "${_tok}" == "--net-bi-port="* ]]; then
+            _ports_csv="${_ports_csv:+${_ports_csv},}${_tok#--net-bi-port=}"
+        elif [[ "${_tok}" == "--net-bo-port="* ]]; then
+            _ports_csv="${_ports_csv:+${_ports_csv},}${_tok#--net-bo-port=}"
         fi
         _prev="${_tok}"
     done
