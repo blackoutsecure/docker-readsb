@@ -231,16 +231,6 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         fi
     fi
 
-    # ── Beast-input port (READSB_NET_BI_PORT) ─────────────────────────────────
-    if [[ -n "${READSB_NET_BI_PORT:-}" ]] && ! has_readsb_opt "--net-bi-port"; then
-        readsb_args+=(--net-bi-port "${READSB_NET_BI_PORT}")
-    fi
-
-    # ── Beast-output port (READSB_NET_BO_PORT) ────────────────────────────────
-    if [[ -n "${READSB_NET_BO_PORT:-}" ]] && ! has_readsb_opt "--net-bo-port"; then
-        readsb_args+=(--net-bo-port "${READSB_NET_BO_PORT}")
-    fi
-
     # Shared feed tuning args -- only add if user hasn't already specified them
     if ! has_readsb_opt "--net-beast-reduce-interval"; then
         readsb_args+=(--net-beast-reduce-interval 0.5)
@@ -274,6 +264,18 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
     if [[ -n "${FEED_LON:-}" ]] && ! has_readsb_opt "--lon"; then
         readsb_args+=(--lon "${FEED_LON}")
     fi
+fi
+
+# ── Beast-input port (READSB_NET_BI_PORT) ─────────────────────────────────────
+# Applied unconditionally (not feed-profile-specific) so that beast input/output
+# ports are configured even when no feed profiles are active.
+if [[ -n "${READSB_NET_BI_PORT:-}" ]] && ! has_readsb_opt "--net-bi-port"; then
+    readsb_args+=(--net-bi-port "${READSB_NET_BI_PORT}")
+fi
+
+# ── Beast-output port (READSB_NET_BO_PORT) ────────────────────────────────────
+if [[ -n "${READSB_NET_BO_PORT:-}" ]] && ! has_readsb_opt "--net-bo-port"; then
+    readsb_args+=(--net-bo-port "${READSB_NET_BO_PORT}")
 fi
 
 readsb_args_rendered=$(printf '%q ' "${readsb_args[@]}")
