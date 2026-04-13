@@ -112,6 +112,12 @@ while true; do
         old_age=$(( old_age + AGE_INTERVAL ))
     else
         old_age=${AGE_COMPLAIN}
+        # readsb is producing fresh JSON — reset the crash-loop fail counter
+        # so next restart (e.g. Watchtower update) gets zero backoff.
+        _fc_file="/run/readsb-fail-count"
+        if [[ -f "${_fc_file}" ]] && [[ "$(cat "${_fc_file}" 2>/dev/null)" != "0" ]]; then
+            echo "0" > "${_fc_file}"
+        fi
     fi
 
     # ── ADSBx stats upload ────────────────────────────────────────────────

@@ -16,13 +16,19 @@ build_metadata_path=/usr/local/share/readsb/build-metadata.env
 # Prevent tight crash loops when the SDR device is unavailable.  Track
 # consecutive failures via an ephemeral file in /run and apply a progressive
 # delay (5s → 10s → 15s … max 60s) before each attempt.
+#
+# Note: the fail counter is pre-incremented BEFORE exec (since exec replaces
+# the process and EXIT traps never fire).  A companion sentinel file written
+# after readsb has been running for 30+ seconds resets the counter (see below).
 _fail_count_file="/run/readsb-fail-count"
 _fail_count=0
 if [[ -f "${_fail_count_file}" ]]; then
     _fail_count=$(tr -d '[:space:]' < "${_fail_count_file}")
     _fail_count=${_fail_count:-0}
 fi
+_is_restart=false
 if [[ ${_fail_count} -gt 0 ]]; then
+    _is_restart=true
     _backoff=$(( _fail_count * 5 ))
     [[ ${_backoff} -gt 60 ]] && _backoff=60
     log_warn "Previous launch failed (attempt #${_fail_count}). Waiting ${_backoff}s before retry."
@@ -268,87 +274,91 @@ if [[ -r /build_version ]]; then
     build_version=$(< /build_version)
 fi
 
-log_info "readsb container startup configuration"
-log_kv "build_version" "${build_version}"
-log_kv "VERSION" "${VERSION:-unknown}"
-log_kv "BUILD_DATE" "${BUILD_DATE:-unknown}"
-log_kv "VCS_REF" "${VCS_REF:-unknown}"
-log_kv "PUID" "${PUID:-unset}"
-log_kv "PGID" "${PGID:-unset}"
-log_kv "UMASK" "${UMASK:-unset}"
-log_kv "TZ" "${TZ:-unset}"
-log_kv "READSB_USER" "${readsb_user}"
-log_kv "READSB_ARGS(raw)" "${READSB_ARGS:-unset}"
-log_kv "READSB_ARGS(src)" "${readsb_args_source}"
-log_kv "READSB_RUN_DIR" "${readsb_run_dir}"
-log_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
-log_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
-log_kv "effective_ARGS" "${readsb_args_rendered}"
-log_kv "FEED_PROFILES" "${FEED_PROFILES:-none}"
-log_kv "FEED_LAT" "${FEED_LAT:-unset}"
-log_kv "FEED_LON" "${FEED_LON:-unset}"
-log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
-log_kv "PUBLIC_IP" "${PUBLIC_IP:-unknown}"
-log_kv "AUTOGAIN" "${READSB_AUTOGAIN:-true}"
-log_kv "BIASTEE" "${READSB_BIASTEE:-false}"
-if [[ "${feed_active}" == "true" ]]; then
-    log_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
-    log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
-    log_kv "ADSBX_UPLOAD" "$(has_feed_profile adsbexchange && echo 'enabled (same UUID as beast feed)' || echo 'disabled (adsbexchange not in FEED_PROFILES)')"
-    for _fp in "${FEED_PROFILE_LIST[@]}"; do
-        _fc=$(get_feed_connector "${_fp}")
-        _fc2=$(get_feed_connector_secondary "${_fp}")
-        _ms=$(get_mlat_server "${_fp}")
-        _fp_uuid=$(get_profile_uuid "${_fp}")
-        log_kv "FEED[${_fp}]" "${_fc}"
-        if [[ -n "${_fc2}" ]]; then
-            log_kv "FEED[${_fp}:secondary]" "${_fc2}"
+# On restarts, log a compact summary instead of the full config dump.
+if [[ "${_is_restart}" == "true" ]]; then
+    log_info "readsb restarting (attempt #$((_fail_count + 1))). effective_ARGS: ${readsb_args_rendered}"
+else
+    log_info "readsb container startup configuration"
+    log_kv "build_version" "${build_version}"
+    log_kv "VERSION" "${VERSION:-unknown}"
+    log_kv "BUILD_DATE" "${BUILD_DATE:-unknown}"
+    log_kv "VCS_REF" "${VCS_REF:-unknown}"
+    log_kv "PUID" "${PUID:-unset}"
+    log_kv "PGID" "${PGID:-unset}"
+    log_kv "UMASK" "${UMASK:-unset}"
+    log_kv "TZ" "${TZ:-unset}"
+    log_kv "READSB_USER" "${readsb_user}"
+    log_kv "READSB_ARGS(raw)" "${READSB_ARGS:-unset}"
+    log_kv "READSB_ARGS(src)" "${readsb_args_source}"
+    log_kv "READSB_RUN_DIR" "${readsb_run_dir}"
+    log_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
+    log_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
+    log_kv "effective_ARGS" "${readsb_args_rendered}"
+    log_kv "FEED_PROFILES" "${FEED_PROFILES:-none}"
+    log_kv "FEED_LAT" "${FEED_LAT:-unset}"
+    log_kv "FEED_LON" "${FEED_LON:-unset}"
+    log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
+    log_kv "PUBLIC_IP" "${PUBLIC_IP:-unknown}"
+    log_kv "AUTOGAIN" "${READSB_AUTOGAIN:-true}"
+    log_kv "BIASTEE" "${READSB_BIASTEE:-false}"
+    if [[ "${feed_active}" == "true" ]]; then
+        log_kv "FEED_UAT_INPUT" "${FEED_UAT_INPUT:-disabled}"
+        log_kv "FEED_STATS" "${FEED_STATS_ENABLED:-true}"
+        log_kv "ADSBX_UPLOAD" "$(has_feed_profile adsbexchange && echo 'enabled (same UUID as beast feed)' || echo 'disabled (adsbexchange not in FEED_PROFILES)')"
+        for _fp in "${FEED_PROFILE_LIST[@]}"; do
+            _fc=$(get_feed_connector "${_fp}")
+            _fc2=$(get_feed_connector_secondary "${_fp}")
+            _ms=$(get_mlat_server "${_fp}")
+            _fp_uuid=$(get_profile_uuid "${_fp}")
+            log_kv "FEED[${_fp}]" "${_fc}"
+            if [[ -n "${_fc2}" ]]; then
+                log_kv "FEED[${_fp}:secondary]" "${_fc2}"
+            fi
+            log_kv "UUID[${_fp}]" "${_fp_uuid:-missing}"
+            if [[ "${_fp}" == "adsbexchange" && -n "${_fp_uuid}" ]]; then
+                log_kv "ADSBX_STATS_URL" "https://www.adsbexchange.com/api/feeders/?feed=${_fp_uuid}"
+            fi
+            if [[ -n "${_ms}" ]]; then
+                log_kv "MLAT[${_fp}]" "${_ms} (optional — requires separate mlat-client container)"
+            fi
+        done
+    fi
+
+    if [[ ${_dt_val} == "rtlsdr" ]]; then
+        usb_char_devs=0
+        if [[ -d /dev/bus/usb ]]; then
+            usb_char_devs=$(find /dev/bus/usb -type c 2>/dev/null | wc -l | tr -d '[:space:]')
         fi
-        log_kv "UUID[${_fp}]" "${_fp_uuid:-missing}"
-        if [[ "${_fp}" == "adsbexchange" && -n "${_fp_uuid}" ]]; then
-            log_kv "ADSBX_STATS_URL" "https://www.adsbexchange.com/api/feeders/?feed=${_fp_uuid}"
+        log_kv "USB_CHAR_DEVS" "${usb_char_devs}"
+
+        if command -v lsusb >/dev/null 2>&1; then
+            lsusb_compact=$(lsusb 2>/dev/null | paste -sd '; ' -)
+            log_kv "LSUSB" "${lsusb_compact:-none}"
+        else
+            log_kv "LSUSB" "unavailable"
         fi
-        if [[ -n "${_ms}" ]]; then
-            log_kv "MLAT[${_fp}]" "${_ms} (optional — requires separate mlat-client container)"
+
+        if [[ ! -e /dev/bus/usb ]]; then
+            log_warn "/dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input."
+        elif [[ ! -r /dev/bus/usb ]]; then
+            log_warn "/dev/bus/usb is not readable by the container. Check device mapping and runtime permissions."
+        elif [[ ${usb_char_devs} -eq 0 ]]; then
+            log_warn "/dev/bus/usb is present but contains no USB device nodes."
+            log_warn "Check host USB passthrough support and that the SDR is physically attached."
         fi
-    done
-fi
 
-if [[ ${_dt_val} == "rtlsdr" ]]; then
-    usb_char_devs=0
-    if [[ -d /dev/bus/usb ]]; then
-        usb_char_devs=$(find /dev/bus/usb -type c 2>/dev/null | wc -l | tr -d '[:space:]')
+        # ── Kernel DVB module conflict detection (fallback) ──────────────────
+        # If the earlier rmmod attempt failed, warn the user to fix it.
+        if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
+            log_warn "Kernel module 'dvb_usb_rtl28xxu' is still loaded — it blocks userspace RTL-SDR access."
+            log_warn "Automatic removal failed. On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
+            log_warn "  blacklist dvb_usb_rtl28xxu"
+            log_warn "  blacklist rtl2832"
+            log_warn "  blacklist rtl2830"
+            log_warn "Then reboot the host or run: sudo rmmod dvb_usb_rtl28xxu rtl2832 rtl2830"
+        fi
     fi
-    log_kv "USB_CHAR_DEVS" "${usb_char_devs}"
-
-    if command -v lsusb >/dev/null 2>&1; then
-        lsusb_compact=$(lsusb 2>/dev/null | paste -sd '; ' -)
-        log_kv "LSUSB" "${lsusb_compact:-none}"
-    else
-        log_kv "LSUSB" "unavailable"
-    fi
-
-    if [[ ! -e /dev/bus/usb ]]; then
-        log_warn "/dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input."
-    elif [[ ! -r /dev/bus/usb ]]; then
-        log_warn "/dev/bus/usb is not readable by the container. Check device mapping and runtime permissions."
-    elif [[ ${usb_char_devs} -eq 0 ]]; then
-        log_warn "/dev/bus/usb is present but contains no USB device nodes."
-        log_warn "Check host USB passthrough support and that the SDR is physically attached."
-    fi
-
-    # ── Kernel DVB module conflict detection (fallback) ──────────────────────
-    # If the earlier rmmod attempt failed, warn the user to fix it on the host.
-    if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
-        log_warn "Kernel module 'dvb_usb_rtl28xxu' is still loaded — it blocks userspace RTL-SDR access."
-        log_warn "Automatic removal failed. On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
-        log_warn "  blacklist dvb_usb_rtl28xxu"
-        log_warn "  blacklist rtl2832"
-        log_warn "  blacklist rtl2830"
-        log_warn "Then reboot the host or run: sudo rmmod dvb_usb_rtl28xxu rtl2832 rtl2830"
-    fi
-
-fi
+fi  # end _is_restart check
 
 # ── Sysfs USB unbind (last resort before exec) ───────────────────────────────
 # If the dvb_usb_rtl28xxu kernel driver is still bound to any RTL2832U device,
@@ -376,22 +386,54 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
     fi
 fi
 
-# ── Exec readsb with syslog-format log prefixing ─────────────────────────────────
+# ── Wait for listening ports to be available ──────────────────────────────────
+# After a crash, TCP sockets may linger in TIME_WAIT.  Wait up to 15 seconds
+# for the ports specified in --net-bi-port to become available.
+_wait_for_ports() {
+    local _ports_csv=""
+    local _prev=""
+    for _tok in "${readsb_args[@]}"; do
+        if [[ "${_prev}" == "--net-bi-port" ]]; then
+            _ports_csv="${_tok}"
+            break
+        fi
+        if [[ "${_tok}" == "--net-bi-port="* ]]; then
+            _ports_csv="${_tok#--net-bi-port=}"
+            break
+        fi
+        _prev="${_tok}"
+    done
+    [[ -z "${_ports_csv}" ]] && return 0
+
+    IFS=',' read -ra _port_list <<< "${_ports_csv}"
+    local _waited=false
+    for _p in "${_port_list[@]}"; do
+        local _attempts=0
+        while ss -tlnH "sport = :${_p}" 2>/dev/null | grep -q ":${_p}" && [[ ${_attempts} -lt 15 ]]; do
+            if [[ "${_waited}" == "false" ]]; then
+                log_warn "Port ${_p} still in use — waiting for release."
+                _waited=true
+            fi
+            sleep 1
+            _attempts=$(( _attempts + 1 ))
+        done
+        if [[ ${_attempts} -ge 15 ]]; then
+            log_warn "Port ${_p} is still occupied after 15s. readsb may fail to bind."
+        fi
+    done
+}
+_wait_for_ports
+
+# ── Exec readsb with syslog-format log prefixing ─────────────────────────────
 # Pipe readsb stdout/stderr through awk to tag every line with a syslog-format
 # prefix including a timestamp (readsb outputs decoder data to stderr).
 LOG_PIPE=$(log_pipe_cmd decoder)
-# Reset fail counter — if we get past all pre-checks the device is accessible.
-echo "0" > "${_fail_count_file}"
 
-# Trap to increment fail count if readsb exits abnormally.  On normal exit (0)
-# the counter stays at 0; on crash it increments for the next restart's backoff.
-_on_exit() {
-    local rc=$?
-    if [[ ${rc} -ne 0 ]]; then
-        echo "$(( _fail_count + 1 ))" > "${_fail_count_file}"
-    fi
-}
-trap _on_exit EXIT
+# Pre-increment the fail counter BEFORE exec.  exec replaces this process so
+# EXIT traps never fire — we must assume failure upfront.  On successful
+# startup (30+ seconds of runtime), svc-feed-stats or svc-autogain resets it.
+echo "$(( _fail_count + 1 ))" > "${_fail_count_file}"
+
 if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
     lsiown -R "${readsb_user}:${readsb_user}" "${readsb_run_dir}"
     exec s6-setuidgid "${readsb_user}" /bin/bash -c "
