@@ -561,6 +561,26 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 
 MLAT (multilateration) is **optional** — your ADS-B feed and stats work without it. MLAT uses timing data from multiple receivers to locate aircraft that don't broadcast GPS positions. If you want to enable it, run a separate `mlat-client` container per exchange.
 
+#### mlat-client Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `MLAT_CLIENT_INPUT_CONNECT` | `readsb:30005` | Beast data source (`host:port`) |
+| `MLAT_CLIENT_SERVER` | `feed.adsbexchange.com:31090` | Multilateration server (`host:port`) — see table below |
+| `MLAT_CLIENT_LAT` | (auto-detected) | Receiver latitude in decimal degrees. Auto-detected via IP geolocation if empty and `MLAT_CLIENT_AUTO_LOCATION=true`. |
+| `MLAT_CLIENT_LON` | (auto-detected) | Receiver longitude in decimal degrees. Auto-detected via IP geolocation if empty and `MLAT_CLIENT_AUTO_LOCATION=true`. |
+| `MLAT_CLIENT_ALT` | (auto-detected) | Receiver altitude with unit (`m` or `ft`). Auto-detected from terrain elevation when lat/lon are auto-detected. |
+| `MLAT_CLIENT_USER_ID` | *(required)* | User identifier / feeder name for the MLAT server |
+| `MLAT_CLIENT_RESULTS` | (none) | Results output destination(s), e.g. `beast,connect,readsb:30104` |
+| `MLAT_CLIENT_AUTO_LOCATION` | `true` | Auto-detect lat/lon via [ip-api.com](http://ip-api.com/) and altitude via [Open-Meteo Elevation API](https://open-meteo.com/en/docs/elevation-api) when `MLAT_CLIENT_LAT`/`MLAT_CLIENT_LON` are not set. Set to `false` to disable. |
+| `MLAT_CLIENT_PRIVACY` | `false` | Hide receiver on coverage maps |
+| `MLAT_CLIENT_UUID` | (none) | UUID sent to the server |
+| `MLAT_CLIENT_UUID_FILE` | (none) | Path to UUID file for persistent identity |
+| `MLAT_CLIENT_NO_UDP` | `false` | Disable UDP transport |
+| `MLAT_CLIENT_ARGS` | (none) | Raw arguments (overrides individual env vars) |
+
+> **Auto-location:** When `MLAT_CLIENT_AUTO_LOCATION` is `true` (the default) and `MLAT_CLIENT_LAT`/`MLAT_CLIENT_LON` are not set, the mlat-client container automatically detects your approximate location via IP geolocation. Altitude is resolved from terrain elevation at the detected coordinates. Explicit values always take priority. IP-based geolocation is approximate (city-level) — for best MLAT results, set your exact coordinates manually.
+
 | Profile name | MLAT server endpoint |
 |---|---|
 | `adsbexchange` | `feed.adsbexchange.com:31090` |
@@ -600,11 +620,50 @@ services:
     environment:
       - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
       - MLAT_CLIENT_SERVER=feed.adsbexchange.com:31090
-      - MLAT_CLIENT_LAT=51.5074
-      - MLAT_CLIENT_LON=-0.1278
-      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_LAT=51.5074               # omit to auto-detect via IP geolocation
+      - MLAT_CLIENT_LON=-0.1278               # omit to auto-detect via IP geolocation
+      - MLAT_CLIENT_ALT=50m                   # omit to auto-detect from terrain elevation
+      # - MLAT_CLIENT_AUTO_LOCATION=true      # default — auto-detects lat/lon/alt when not set
       - MLAT_CLIENT_USER_ID=myfeeder-london
       - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
+    depends_on: [readsb]
+    restart: unless-stopped
+
+volumes:
+  readsb-config:
+  readsb-run:
+```
+
+### Quick Start — Single Exchange (Auto-Location)
+
+Minimal setup — lat/lon/alt are auto-detected from your IP address:
+
+```yaml
+services:
+  readsb:
+    image: blackoutsecure/readsb:latest
+    container_name: readsb
+    environment:
+      - TZ=Etc/UTC
+      - READSB_ARGS=--net --device-type rtlsdr
+      - READSB_AUTOGAIN=true
+      - FEED_PROFILES=adsbexchange
+    volumes:
+      - readsb-config:/config
+      - readsb-run:/run/readsb
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    restart: unless-stopped
+
+  mlat-client:
+    image: blackoutsecure/mlat-client:latest
+    container_name: mlat-adsbx
+    environment:
+      - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
+      - MLAT_CLIENT_SERVER=feed.adsbexchange.com:31090
+      - MLAT_CLIENT_USER_ID=myfeeder-london
+      - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
+      # MLAT_CLIENT_LAT, MLAT_CLIENT_LON, MLAT_CLIENT_ALT auto-detected
     depends_on: [readsb]
     restart: unless-stopped
 
@@ -641,9 +700,9 @@ services:
     environment:
       - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
       - MLAT_CLIENT_SERVER=feed.adsbexchange.com:31090
-      - MLAT_CLIENT_LAT=51.5074
-      - MLAT_CLIENT_LON=-0.1278
-      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_LAT=51.5074               # omit to auto-detect via IP geolocation
+      - MLAT_CLIENT_LON=-0.1278               # omit to auto-detect via IP geolocation
+      - MLAT_CLIENT_ALT=50m                   # omit to auto-detect from terrain elevation
       - MLAT_CLIENT_USER_ID=myfeeder-london
       - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
     depends_on: [readsb]
@@ -655,9 +714,9 @@ services:
     environment:
       - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
       - MLAT_CLIENT_SERVER=feed.adsb.fi:31090
-      - MLAT_CLIENT_LAT=51.5074
-      - MLAT_CLIENT_LON=-0.1278
-      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_LAT=51.5074               # omit to auto-detect
+      - MLAT_CLIENT_LON=-0.1278               # omit to auto-detect
+      - MLAT_CLIENT_ALT=50m                   # omit to auto-detect
       - MLAT_CLIENT_USER_ID=myfeeder-london
       - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
     depends_on: [readsb]
@@ -669,9 +728,9 @@ services:
     environment:
       - MLAT_CLIENT_INPUT_CONNECT=readsb:30005
       - MLAT_CLIENT_SERVER=feed.airplanes.live:31090
-      - MLAT_CLIENT_LAT=51.5074
-      - MLAT_CLIENT_LON=-0.1278
-      - MLAT_CLIENT_ALT=50m
+      - MLAT_CLIENT_LAT=51.5074               # omit to auto-detect
+      - MLAT_CLIENT_LON=-0.1278               # omit to auto-detect
+      - MLAT_CLIENT_ALT=50m                   # omit to auto-detect
       - MLAT_CLIENT_USER_ID=myfeeder-london
       - MLAT_CLIENT_RESULTS=beast,connect,readsb:30104
     depends_on: [readsb]
@@ -698,7 +757,7 @@ Some aggregators use proprietary protocols or require authentication that cannot
 
 ### Notes
 
-- **MLAT**: MLAT (multilateration) positioning is **entirely optional** — your ADS-B feed works without it. MLAT requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. If you see "MLAT: Not Found" on your feeder status page, that is normal when no mlat-client container is running. See the MLAT server table above for the correct server endpoint per exchange if you want to set it up.
+- **MLAT**: MLAT (multilateration) positioning is **entirely optional** — your ADS-B feed works without it. MLAT requires a separate `mlat-client` container per exchange. The readsb container handles Beast data forwarding only. If you see "MLAT: Not Found" on your feeder status page, that is normal when no mlat-client container is running. See the MLAT server table above for the correct server endpoint per exchange if you want to set it up. The mlat-client container supports **automatic location detection** (`MLAT_CLIENT_AUTO_LOCATION=true`, enabled by default) — lat/lon are resolved from your IP address and altitude from terrain elevation, so you can omit `MLAT_CLIENT_LAT`/`MLAT_CLIENT_LON`/`MLAT_CLIENT_ALT` for a quick start. For best MLAT accuracy, set your exact coordinates manually.
 
 - **UUID**: Each feed profile gets its own UUID, stored in `/config/feed-uuid-<profile>` (e.g. `/config/feed-uuid-adsbexchange`). UUIDs are auto-generated on first run and persisted across container restarts. They are also injected into the s6 container environment (e.g. `FEED_UUID_ADSBEXCHANGE`) for downstream services. To override, set `FEED_UUID_<PROFILE>` env vars. To view: `docker exec readsb cat /config/feed-uuid-adsbexchange`
 
