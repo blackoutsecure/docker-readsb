@@ -165,9 +165,9 @@ services:
       - 30001:30001  # Raw protocol (TCP)
       - 30002:30002  # Raw protocol input (TCP)
       - 30003:30003  # SBS protocol (TCP)
-      - 30004:30004  # Beast protocol (TCP)
-      - 30005:30005  # Beast input (TCP)
-      - 30104:30104  # JSON protocol (TCP)
+      - 30004:30004  # Beast input (TCP)
+      - 30005:30005  # Beast output (TCP)
+      - 30104:30104  # Beast input (TCP)
     devices:
       - /dev/bus/usb:/dev/bus/usb
     security_opt:
@@ -319,9 +319,9 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-p 30001:30001` | Raw protocol output (TCP) |
 | `-p 30002:30002` | Raw protocol input (TCP) |
 | `-p 30003:30003` | SBS protocol compatible output (TCP) |
-| `-p 30004:30004` | Beast protocol output (TCP) |
-| `-p 30005:30005` | Beast protocol input (TCP) |
-| `-p 30104:30104` | JSON protocol output (TCP) |
+| `-p 30004:30004` | Beast protocol input (TCP) |
+| `-p 30005:30005` | Beast protocol output (TCP) |
+| `-p 30104:30104` | Beast protocol input (TCP) |
 
 ### Environment Variables
 
