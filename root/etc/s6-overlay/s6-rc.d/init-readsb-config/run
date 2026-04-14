@@ -69,8 +69,15 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
 
         if [[ -n "${_env_uuid}" ]]; then
             echo "${_env_uuid}" > "${_profile_uuid_file}"
-            log_info "${_profile} UUID set from ${_env_var_name}: ${_env_uuid}"
-        elif [[ ! -f "${_profile_uuid_file}" ]]; then
+            log_info "${_profile} UUID source: env var ${_env_var_name}"
+            log_info "${_profile} UUID value:  ${_env_uuid}"
+            log_info "${_profile} UUID file:   ${_profile_uuid_file}"
+        elif [[ -f "${_profile_uuid_file}" ]]; then
+            _existing_uuid=$(tr -d '[:space:]' < "${_profile_uuid_file}")
+            log_info "${_profile} UUID source: existing file (persisted from previous run)"
+            log_info "${_profile} UUID value:  ${_existing_uuid}"
+            log_info "${_profile} UUID file:   ${_profile_uuid_file}"
+        else
             # ── Legacy UUID import ─────────────────────────────────────────
             # When transitioning from a native feedclient install to this
             # container, try to import the existing UUID so ADSBexchange
@@ -85,7 +92,9 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
                         _legacy_uuid=$(tr -d '[:space:]' < "${_legacy_path}")
                         if [[ ${_legacy_uuid} =~ ${_uuid_regex} ]]; then
                             echo "${_legacy_uuid}" > "${_profile_uuid_file}"
-                            log_info "${_profile} UUID imported from legacy path ${_legacy_path}: ${_legacy_uuid}"
+                            log_info "${_profile} UUID source: imported from legacy ${_legacy_path}"
+                            log_info "${_profile} UUID value:  ${_legacy_uuid}"
+                            log_info "${_profile} UUID file:   ${_profile_uuid_file}"
                             log_info "To avoid duplicate feeders, disable the native feedclient on the host:"
                             log_info "  sudo systemctl disable --now adsbexchange-feed adsbexchange-mlat"
                             _imported=true
@@ -97,7 +106,9 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
             if [[ "${_imported}" != "true" ]]; then
                 _new_uuid=$(cat /proc/sys/kernel/random/uuid)
                 echo "${_new_uuid}" > "${_profile_uuid_file}"
-                log_info "${_profile} UUID auto-generated: ${_new_uuid}"
+                log_info "${_profile} UUID source: auto-generated (first run)"
+                log_info "${_profile} UUID value:  ${_new_uuid}"
+                log_info "${_profile} UUID file:   ${_profile_uuid_file}"
                 if [[ "${_profile}" == "adsbexchange" ]]; then
                     log_warn "If replacing an existing feeder, set ${_env_var_name}=<old-uuid> to preserve identity"
                 fi
@@ -125,8 +136,6 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         # Persist UUID to s6 container environment for downstream services
         # e.g. FEED_UUID_ADSBEXCHANGE, FEED_UUID_ADSB_FI
         printf '%s' "${_uuid_val}" > "${_s6_env}/FEED_UUID_${_env_suffix}"
-
-        log_info "${_profile} UUID: ${_uuid_val}"
     done
 
     log_info "Active feed profiles: ${FEED_PROFILES:-adsbexchange}"
