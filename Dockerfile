@@ -39,6 +39,9 @@ RUN git clone --branch ${READSB_REPO_BRANCH} --single-branch --depth 1 ${READSB_
     printf 'BUILD_DATE=%s\nVERSION=%s\nVCS_REF=%s\nVCS_URL=%s\n' "${BUILD_DATE}" "${VERSION}" "${VCS_REF}" "${VCS_URL}" > /tmp/readsb-build-metadata.env && \
     rm -rf .git
 
+COPY src/usb-reset.c /tmp/usb-reset.c
+RUN gcc -O2 -s -o /tmp/usb-reset /tmp/usb-reset.c
+
 RUN set -e && \
     MARCH="" && \
     if [ "$(uname -m)" = "x86_64" ]; then MARCH=" -march=nehalem"; fi && \
@@ -52,6 +55,7 @@ RUN set -e && \
     install -D -m 0755 viewadsb "${BUILD_OUTPUT_DIR}/usr/local/bin/viewadsb-uuid" && \
     strip --strip-unneeded \
         "${BUILD_OUTPUT_DIR}/usr/local/bin/"* && \
+    install -D -m 0755 /tmp/usb-reset "${BUILD_OUTPUT_DIR}/usr/local/bin/usb-reset" && \
     mkdir -p "${BUILD_OUTPUT_DIR}/usr/local/share/tar1090" "${BUILD_OUTPUT_DIR}/usr/local/share/readsb" && \
     install -D -m 0644 /tmp/readsb-build-metadata.env "${BUILD_OUTPUT_DIR}/usr/local/share/readsb/build-metadata.env" && \
     wget -q --https-only --tries=3 --timeout=20 -O "${BUILD_OUTPUT_DIR}/usr/local/share/tar1090/aircraft.csv.gz" "${TAR1090_DB_URL}"
@@ -90,6 +94,7 @@ RUN apk add --no-cache \
         zstd \
         curl \
         jq \
+        kmod \
         rtl-sdr \
         usbutils
 

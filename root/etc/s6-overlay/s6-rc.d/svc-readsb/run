@@ -127,8 +127,32 @@ fi
 # before bias-T or readsb tries to open the device.  On balenaOS the
 # io.balena.features.kernel-modules label grants rmmod access; on plain Docker
 # the container typically needs --privileged or SYS_MODULE capability.
+#
+# IMPORTANT: unbind all USB interfaces from the DVB driver BEFORE attempting
+# rmmod — the module cannot be unloaded while it still has bound devices
+# (non-zero reference count).  Previous versions tried rmmod first, which
+# always failed because the devices were still bound.
 if [[ ${_dt_val} == "rtlsdr" ]] && [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
     log_warn "Kernel module 'dvb_usb_rtl28xxu' is loaded — attempting automatic removal."
+
+    # Step 1: Unbind all USB interfaces from DVB driver (drops refcount to 0)
+    _dvb_driver_path="/sys/bus/usb/drivers/dvb_usb_rtl28xxu"
+    _dvb_unbound=false
+    if [[ -d "${_dvb_driver_path}" ]]; then
+        for _bound in "${_dvb_driver_path}"/*/; do
+            _intf=$(basename "${_bound}")
+            [[ "${_intf}" == *:* ]] || continue
+            if echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null; then
+                log_info "Unbound USB interface '${_intf}' from dvb_usb_rtl28xxu via sysfs."
+                _dvb_unbound=true
+            else
+                log_warn "Failed to unbind '${_intf}' from dvb_usb_rtl28xxu via sysfs."
+            fi
+        done
+        [[ "${_dvb_unbound}" == "true" ]] && sleep 1
+    fi
+
+    # Step 2: Remove the kernel modules (should succeed now that refcount is 0)
     _mod_removed=false
     for _mod in dvb_usb_rtl28xxu rtl2832 rtl2830; do
         if [[ -d /sys/module/${_mod} ]]; then
@@ -143,6 +167,41 @@ if [[ ${_dt_val} == "rtlsdr" ]] && [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
     if [[ "${_mod_removed}" == "true" ]]; then
         # Allow device nodes to settle after module removal
         sleep 2
+    fi
+
+    # Step 3: If rmmod failed but unbind succeeded, the DVB module is still
+    # loaded and could re-attach.  Perform a USB device reset on each RTL-SDR
+    # dongle to clear stale DVB state from the RTL2832U chip, then re-unbind
+    # in case the reset triggered automatic driver re-probing.
+    if [[ "${_dvb_unbound}" == "true" && "${_mod_removed}" != "true" ]]; then
+        if command -v usb-reset >/dev/null 2>&1; then
+            while IFS= read -r _devpath; do
+                if [[ -c "${_devpath}" ]]; then
+                    log_info "Resetting USB device: ${_devpath} (clearing stale DVB state)"
+                    usb-reset "${_devpath}" 2>&1 | while IFS= read -r _line; do
+                        log_info "usb-reset: ${_line}"
+                    done || true
+                fi
+            done < <(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' | \
+                     sed -nE 's|^Bus ([0-9]+) Device ([0-9]+):.*|/dev/bus/usb/\1/\2|p')
+            sleep 2
+
+            # Re-unbind: USB reset re-enumerates the device, which may cause
+            # the still-loaded DVB module to re-attach automatically.
+            if [[ -d "${_dvb_driver_path}" ]]; then
+                for _bound in "${_dvb_driver_path}"/*/; do
+                    _intf=$(basename "${_bound}")
+                    [[ "${_intf}" == *:* ]] || continue
+                    if echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null; then
+                        log_info "Re-unbound '${_intf}' from dvb_usb_rtl28xxu after USB reset."
+                    fi
+                done
+                sleep 1
+            fi
+        else
+            log_warn "usb-reset not found — RTL-SDR may not receive data if DVB left stale state."
+            log_warn "On the host, blacklist the module: echo 'blacklist dvb_usb_rtl28xxu' > /etc/modprobe.d/blacklist-rtlsdr.conf"
+        fi
     fi
 fi
 
@@ -370,30 +429,39 @@ else
         fi
 
         # ── Kernel DVB module conflict detection (fallback) ──────────────────
-        # If the earlier rmmod attempt failed, warn the user to fix it.
+        # If the earlier unbind+rmmod+reset sequence didn't fully clear DVB,
+        # warn the user to blacklist the module on the host.
         if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
-            log_warn "Kernel module 'dvb_usb_rtl28xxu' is still loaded — it blocks userspace RTL-SDR access."
-            log_warn "Automatic removal failed. On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
-            log_warn "  blacklist dvb_usb_rtl28xxu"
-            log_warn "  blacklist rtl2832"
-            log_warn "  blacklist rtl2830"
-            log_warn "Then reboot the host or run: sudo rmmod dvb_usb_rtl28xxu rtl2832 rtl2830"
+            _dvb_driver_path="/sys/bus/usb/drivers/dvb_usb_rtl28xxu"
+            _has_bound=false
+            if [[ -d "${_dvb_driver_path}" ]]; then
+                for _bound in "${_dvb_driver_path}"/*/; do
+                    _intf=$(basename "${_bound}")
+                    [[ "${_intf}" == *:* ]] && _has_bound=true && break
+                done
+            fi
+            if [[ "${_has_bound}" == "true" ]]; then
+                log_warn "Kernel module 'dvb_usb_rtl28xxu' is still loaded with bound devices."
+                log_warn "On the host, create /etc/modprobe.d/blacklist-rtlsdr.conf with:"
+                log_warn "  blacklist dvb_usb_rtl28xxu"
+                log_warn "  blacklist rtl2832"
+                log_warn "  blacklist rtl2830"
+                log_warn "Then reboot the host or run: sudo rmmod dvb_usb_rtl28xxu rtl2832 rtl2830"
+            fi
         fi
     fi
 fi  # end _is_restart check
 
-# ── Sysfs USB unbind (last resort before exec) ───────────────────────────────
-# If the dvb_usb_rtl28xxu kernel driver is still bound to any RTL2832U device,
-# unbind it via sysfs.  This is more targeted than rmmod: it releases only the
-# specific USB interfaces the DVB driver claimed, so librtlsdr can open them.
-# Works even when rmmod fails (module has refcount, missing CAP_SYS_MODULE, etc).
+# ── Sysfs USB unbind (final safety check before exec) ────────────────────────
+# If the dvb_usb_rtl28xxu kernel driver is STILL bound to any RTL2832U device
+# (e.g. the earlier removal was skipped on a compact restart log path),
+# unbind it via sysfs and perform a USB reset to clear stale chip state.
 if [[ ${_dt_val} == "rtlsdr" ]]; then
     _dvb_driver_path="/sys/bus/usb/drivers/dvb_usb_rtl28xxu"
     if [[ -d "${_dvb_driver_path}" ]]; then
         _unbound=false
         for _bound in "${_dvb_driver_path}"/*/; do
             _intf=$(basename "${_bound}")
-            # Skip non-interface entries (module, bind, unbind, etc.)
             [[ "${_intf}" == *:* ]] || continue
             if echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null; then
                 log_info "Unbound USB interface '${_intf}' from dvb_usb_rtl28xxu via sysfs."
@@ -404,6 +472,26 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
         done
         if [[ "${_unbound}" == "true" ]]; then
             sleep 1
+            # USB reset to clear stale DVB state from the RTL2832U chip
+            if command -v usb-reset >/dev/null 2>&1; then
+                while IFS= read -r _devpath; do
+                    if [[ -c "${_devpath}" ]]; then
+                        log_info "Resetting USB device: ${_devpath} (post DVB-unbind)"
+                        usb-reset "${_devpath}" 2>&1 | while IFS= read -r _line; do
+                            log_info "usb-reset: ${_line}"
+                        done || true
+                    fi
+                done < <(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' | \
+                         sed -nE 's|^Bus ([0-9]+) Device ([0-9]+):.*|/dev/bus/usb/\1/\2|p')
+                sleep 2
+                # Re-unbind: reset may re-trigger DVB driver attachment
+                for _bound in "${_dvb_driver_path}"/*/; do
+                    _intf=$(basename "${_bound}")
+                    [[ "${_intf}" == *:* ]] || continue
+                    echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null || true
+                done
+                sleep 1
+            fi
         fi
     fi
 fi

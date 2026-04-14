@@ -239,6 +239,23 @@ else
     log_warn "no receiver location set (set FEED_LAT/FEED_LON or enable READSB_AUTO_LOCATION)"
 fi
 
+# ── DVB kernel module pre-cleanup ─────────────────────────────────────────────
+# If the dvb_usb_rtl28xxu kernel module grabbed the RTL-SDR while the
+# container was stopped, unbind it now so SDR enumeration tools (rtl_eeprom,
+# rtl_test) can access the device.  The main removal+reset happens later in
+# svc-readsb; this is a lightweight pre-pass for clean enumeration.
+if [[ -d /sys/bus/usb/drivers/dvb_usb_rtl28xxu ]]; then
+    _dvb_drv="/sys/bus/usb/drivers/dvb_usb_rtl28xxu"
+    for _bound in "${_dvb_drv}"/*/; do
+        _intf=$(basename "${_bound}")
+        [[ "${_intf}" == *:* ]] || continue
+        if echo -n "${_intf}" > "${_dvb_drv}/unbind" 2>/dev/null; then
+            log_info "Pre-enumeration: unbound '${_intf}' from dvb_usb_rtl28xxu"
+        fi
+    done
+    sleep 1
+fi
+
 # ── SDR dongle auto-detection ─────────────────────────────────────────────────
 # Enumerate RTL-SDR dongles and persist device assignments for svc-readsb.
 # shellcheck source=/usr/local/bin/sdr-enumerate.sh
