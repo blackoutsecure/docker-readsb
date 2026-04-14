@@ -349,6 +349,7 @@ For deployment via the web interface, use the deploy button in this repository. 
 | `-e READSB_AUTOGAIN_INTERVAL=3600` | How often (seconds) the autogain service checks and adjusts gain. Default `3600` (1 hour). | Optional |
 | `-e READSB_AUTOGAIN_LOW=0.5` | Autogain low threshold (%). If strong signals fall below this, gain is increased. | Optional |
 | `-e READSB_AUTOGAIN_HIGH=7.0` | Autogain high threshold (%). If strong signals exceed this, gain is decreased. | Optional |
+| `-e READSB_AUTOGAIN_STALL_CYCLES=3` | Consecutive low-message cycles before autogain resets to `--gain auto` to break a deadlock. Default `3` (3 hours). Set to `0` to disable. | Optional |
 | `-e READSB_BIASTEE=false` | Enable bias-T DC voltage on the RTL-SDR coax to power active antennas/LNAs (default: `false`). Only enable if your antenna requires DC power. | Optional |
 | `-e LOG_LEVEL=info` | Minimum log verbosity: `debug`, `info` (default), `warn`, `error`, `fatal`. Set to `debug` for verbose operational detail, or `warn` to suppress routine informational messages. | Optional |
 
@@ -824,6 +825,7 @@ The initial gain starts at **49.6** (near-maximum) and steps down as needed. Mos
 | `READSB_AUTOGAIN_INTERVAL` | `3600` | Check interval in seconds. Default is 1 hour. Lower values (e.g. `1800` = 30 min) converge faster but need sufficient message volume. |
 | `READSB_AUTOGAIN_LOW` | `0.5` | Low threshold (%). Below this, gain is increased. Raise if you want fewer weak signals. |
 | `READSB_AUTOGAIN_HIGH` | `7.0` | High threshold (%). Above this, gain is decreased. Lower if you're in a high-RF area. |
+| `READSB_AUTOGAIN_STALL_CYCLES` | `3` | Consecutive low-message cycles (< 1000 msgs) before resetting to `--gain auto`. Prevents deadlocks where a stuck gain produces too few messages to self-correct. Default `3` (3 hours). Set to `0` to disable. |
 
 ### Monitoring Autogain
 
@@ -846,6 +848,13 @@ svc-autogain[info]: Current gain: 49.6
 svc-autogain[info]: Decreasing gain: 49.6 → 48.0 (8.234% strong signals)
 svc-autogain[info]: Restarting readsb to apply gain 48.0...
 svc-autogain[info]: Gain 44.5 OK — 3.142% strong signals in range [0.5%, 7.0%]
+
+# Stall recovery (if gain gets stuck with too few messages):
+svc-autogain[info]: Not enough new messages (4/1000). Skipping adjustment. (stall 1/3)
+svc-autogain[info]: Not enough new messages (3/1000). Skipping adjustment. (stall 2/3)
+svc-autogain[info]: Not enough new messages (6/1000). Skipping adjustment. (stall 3/3)
+svc-autogain[warn]: Autogain stalled for 3 consecutive cycles — resetting gain to auto.
+svc-autogain[info]: Restarting readsb with --gain auto to bootstrap fresh data...
 ```
 
 ### Autogain vs `--gain auto` vs Manual Gain
@@ -866,6 +875,17 @@ environment:
 ```
 
 If `--gain` is specified in `READSB_ARGS`, it takes priority over both autogain and hardware AGC.
+
+### Stall Recovery
+
+If the persisted gain value becomes suboptimal (e.g. after a kernel module loads or RF conditions change dramatically), the receiver may get so few messages that autogain can never accumulate the 1,000 messages needed to re-evaluate — a deadlock. The stall recovery mechanism breaks this cycle automatically:
+
+1. Each hour, if fewer than 1,000 new messages were received, a stall counter increments
+2. After **3 consecutive stalls** (configurable via `READSB_AUTOGAIN_STALL_CYCLES`), gain is reset to `auto` (hardware AGC)
+3. Hardware AGC bootstraps enough messages for autogain to re-enter the gain table and optimize
+4. The stall counter resets on container restart or when messages flow normally
+
+To disable stall recovery: `READSB_AUTOGAIN_STALL_CYCLES=0`
 
 ### Tips for Faster Convergence
 

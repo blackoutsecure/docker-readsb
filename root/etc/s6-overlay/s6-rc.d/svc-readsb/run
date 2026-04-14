@@ -312,6 +312,12 @@ else
     log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
     log_kv "PUBLIC_IP" "${PUBLIC_IP:-unknown}"
     log_kv "AUTOGAIN" "${READSB_AUTOGAIN:-true}"
+    if [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]]; then
+        log_kv "AUTOGAIN_INTERVAL" "${READSB_AUTOGAIN_INTERVAL:-3600}s"
+        log_kv "AUTOGAIN_LOW" "${READSB_AUTOGAIN_LOW:-0.5}%"
+        log_kv "AUTOGAIN_HIGH" "${READSB_AUTOGAIN_HIGH:-7.0}%"
+        log_kv "AUTOGAIN_STALL_CYCLES" "${READSB_AUTOGAIN_STALL_CYCLES:-3}"
+    fi
     log_kv "BIASTEE" "${READSB_BIASTEE:-false}"
     log_kv "NET_BI_PORT" "${READSB_NET_BI_PORT:-unset}"
     log_kv "NET_BO_PORT" "${READSB_NET_BO_PORT:-unset}"

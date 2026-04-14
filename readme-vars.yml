@@ -47,6 +47,7 @@ opt_param_env_vars:
   - {env_var: "READSB_AUTOGAIN_INTERVAL", env_value: "3600", desc: "How often (seconds) the autogain service checks and adjusts gain. Default 3600 (1 hour)."}
   - {env_var: "READSB_AUTOGAIN_LOW", env_value: "0.5", desc: "Autogain low threshold (%). If strong signals fall below this, gain is increased."}
   - {env_var: "READSB_AUTOGAIN_HIGH", env_value: "7.0", desc: "Autogain high threshold (%). If strong signals exceed this, gain is decreased."}
+  - {env_var: "READSB_AUTOGAIN_STALL_CYCLES", env_value: "3", desc: "Number of consecutive low-message cycles (< 1000 messages) before autogain resets to hardware AGC (--gain auto) to break a deadlock. Default 3 (3 hours at the default 1-hour interval). Set to 0 to disable stall recovery."}
   - {env_var: "READSB_BIASTEE", env_value: "false", desc: "Enable bias-T DC voltage on the RTL-SDR coax to power external LNAs or active antennas. Requires RTL-SDR Blog V3/V4 or compatible dongle. WARNING: only enable if your antenna needs DC power — sending voltage to a passive antenna can damage some dongles."}
   - {env_var: "LOG_LEVEL", env_value: "info", desc: "Minimum log verbosity: debug, info (default), warn, error, fatal. ADSBx per-upload confirmations are debug-level. Set to debug to see them, or warn to suppress routine informational messages."}
 
@@ -78,7 +79,7 @@ app_setup_block: |
 
   **RTL-SDR Hardware**: Pass RTL-SDR USB device(s) to the container using `--device=/dev/bus/usb:/dev/bus/usb`.
 
-  **Automatic Gain Optimization**: Enabled by default (`READSB_AUTOGAIN=true`). Analyzes strong signal percentage hourly and steps through the RTL-SDR gain table to find the optimal fixed gain. Much better than hardware AGC. Gain persists across restarts in `/config/autogain-gain`. Set `READSB_AUTOGAIN=false` to fall back to `--gain auto`.
+  **Automatic Gain Optimization**: Enabled by default (`READSB_AUTOGAIN=true`). Analyzes strong signal percentage hourly and steps through the RTL-SDR gain table to find the optimal fixed gain. Much better than hardware AGC. Gain persists across restarts in `/config/autogain-gain`. Includes automatic stall recovery — if too few messages are received for 3 consecutive cycles, gain resets to hardware AGC to break the deadlock. Set `READSB_AUTOGAIN=false` to fall back to `--gain auto`.
 
   **Bias-T Power**: Set `READSB_BIASTEE=true` to enable DC power on the coax for active antennas with built-in LNAs. Disabled by default — only enable if your antenna requires it.
 

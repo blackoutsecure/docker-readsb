@@ -30,12 +30,19 @@ CHECK_INTERVAL=${READSB_AUTOGAIN_INTERVAL:-3600}
 # Minimum total accepted messages before making an adjustment
 MIN_MESSAGES=1000
 
+# Number of consecutive low-message cycles before resetting gain to auto.
+# Default 3 → 3 hours at the default 1-hour interval.
+STALL_RESET_CYCLES=${READSB_AUTOGAIN_STALL_CYCLES:-3}
+
 # Persistent gain file (survives container restarts)
 GAIN_FILE="/config/autogain-gain"
 
 # Ephemeral state (reset on container restart for clean delta calculation)
 STATE_DIR="/run/autogain"
 mkdir -p "${STATE_DIR}"
+
+# Consecutive low-message counter (ephemeral — resets on container restart)
+stall_count=0
 
 STATS_FILE="${READSB_RUN_DIR:-/run/readsb}/stats.json"
 
@@ -75,7 +82,7 @@ else
     log_info "No persisted gain found. Starting at ${current_gain} (will optimise)."
 fi
 
-log_info "Autogain active — interval=${CHECK_INTERVAL}s, low=${LOW_PCT}%, high=${HIGH_PCT}%"
+log_info "Autogain active — interval=${CHECK_INTERVAL}s, low=${LOW_PCT}%, high=${HIGH_PCT}%, stall_reset=${STALL_RESET_CYCLES} cycles"
 log_info "Current gain: ${current_gain}"
 
 # ── Wait for stats.json to appear ────────────────────────────────────────────
@@ -127,9 +134,26 @@ while true; do
     delta_total=$((total - old_total))
 
     if [[ ${delta_total} -lt ${MIN_MESSAGES} ]]; then
-        log_info "Not enough new messages (${delta_total}/${MIN_MESSAGES}). Skipping adjustment."
+        stall_count=$((stall_count + 1))
+        log_info "Not enough new messages (${delta_total}/${MIN_MESSAGES}). Skipping adjustment. (stall ${stall_count}/${STALL_RESET_CYCLES})"
+
+        if [[ ${stall_count} -ge ${STALL_RESET_CYCLES} ]]; then
+            log_warn "Autogain stalled for ${stall_count} consecutive cycles — resetting gain to auto."
+            echo "auto" > "${GAIN_FILE}"
+            current_gain="auto"
+            stall_count=0
+            echo "0" > "${STATE_DIR}/strong"
+            echo "0" > "${STATE_DIR}/total"
+            if [[ -d /run/service/svc-readsb ]]; then
+                log_info "Restarting readsb with --gain auto to bootstrap fresh data..."
+                s6-svc -r /run/service/svc-readsb
+            fi
+        fi
         continue
     fi
+
+    # Receiving data — reset stall counter
+    stall_count=0
 
     # Calculate percentage of strong signals (>-3dB)
     percent=$(awk "BEGIN { printf \"%.3f\", ${delta_strong} * 100.0 / ${delta_total} }")
@@ -140,6 +164,11 @@ while true; do
     fi
 
     # Find current gain index
+    # After an auto-reset, re-enter the table at 49.6 (index 28)
+    if [[ "${current_gain}" == "auto" ]]; then
+        current_gain="49.6"
+        log_info "Transitioning from auto back to table gain: ${current_gain}"
+    fi
     gain_index=$(gain_to_index "${current_gain}")
 
     # Check if adjustment is needed
