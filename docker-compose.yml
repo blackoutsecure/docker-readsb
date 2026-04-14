@@ -12,10 +12,11 @@ services:
       READSB_AUTO_LOCATION: 'true'
       READSB_AUTOGAIN: 'true'
       READSB_BIASTEE: 'false'
+      FEED_PROFILES: 'adsbexchange'
       LOG_LEVEL: 'info'
     volumes:
-      - config:/config
-      - json:/run/readsb
+      - readsb-config:/config
+      - readsb-json:/run/readsb
     devices:
       - /dev/bus/usb:/dev/bus/usb
     labels:
@@ -35,9 +36,35 @@ services:
     tmpfs:
       - /tmp
       - /run:exec
-    read_only: false
+    restart: unless-stopped
+
+  # ── MLAT Client (ADSBexchange) ──────────────────────────────────────────────
+  # Shares readsb's /config volume so both services use the SAME feeder UUID.
+  # readsb writes /config/feed-uuid-adsbexchange; mlat-client reads it.
+  mlat-client:
+    image: docker.io/blackoutsecure/mlat-client:latest
+    container_name: mlat-adsbx
+    depends_on:
+      - readsb
+    environment:
+      TZ: Etc/UTC
+      MLAT_CLIENT_INPUT_CONNECT: 'readsb:30005'
+      MLAT_CLIENT_SERVER: 'feed.adsbexchange.com:31090'
+      MLAT_CLIENT_AUTO_LOCATION: 'true'
+      MLAT_CLIENT_USER_ID: 'changeme'            # <── set your feeder name
+      MLAT_CLIENT_UUID_FILE: '/config/feed-uuid-adsbexchange'
+      MLAT_CLIENT_RESULTS: 'beast,connect,readsb:30104'
+      LOG_LEVEL: 'info'
+    volumes:
+      - readsb-config:/config:ro
+    labels:
+      io.balena.features.supervisor-api: '1'
+      io.balena.features.balena-api: '1'
+    tmpfs:
+      - /tmp
+      - /run:exec
     restart: unless-stopped
 
 volumes:
-  config:
-  json:
+  readsb-config:
+  readsb-json:

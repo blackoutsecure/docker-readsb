@@ -113,6 +113,24 @@ get_profile_uuid() {
     fi
 }
 
+# ── MLAT (Multilateration) ────────────────────────────────────────────────────
+# MLAT requires a separate mlat-client process that connects to the readsb
+# beast output (port 30005) and to the aggregator's MLAT server.
+#
+# IMPORTANT: mlat-client MUST use the SAME UUID as the beast feed so the
+# aggregator can correlate both data streams into a single feeder identity.
+# For ADSBexchange, the official mlat-client accepts --uuid-file pointing
+# to the same file used by readsb (/config/feed-uuid-adsbexchange).
+#
+# mlat-client also requires:
+#   --user <NAME>        Human-readable feeder name (shown on MLAT map)
+#   --lat / --lon / --alt Precise antenna location (15m/45ft accuracy needed)
+#   --server <HOST:PORT> MLAT server endpoint (see get_mlat_server below)
+#
+# Since mlat-client is a separate binary (Python), it runs as a sidecar
+# container sharing the /config volume for UUID access.
+#   TODO: Create blackoutsecure/mlat-client container image.
+
 # ── Profiles requiring separate containers (not supported via --net-connector) ──
 # These aggregators use proprietary binaries/protocols and require a dedicated
 # sidecar container that reads Beast data from readsb on port 30005.

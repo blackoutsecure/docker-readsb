@@ -71,9 +71,40 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
             echo "${_env_uuid}" > "${_profile_uuid_file}"
             log_info "${_profile} UUID set from ${_env_var_name}: ${_env_uuid}"
         elif [[ ! -f "${_profile_uuid_file}" ]]; then
-            _new_uuid=$(cat /proc/sys/kernel/random/uuid)
-            echo "${_new_uuid}" > "${_profile_uuid_file}"
-            log_info "${_profile} UUID auto-generated: ${_new_uuid}"
+            # ── Legacy UUID import ─────────────────────────────────────────
+            # When transitioning from a native feedclient install to this
+            # container, try to import the existing UUID so ADSBexchange
+            # (and other aggregators) continue to see the same feeder
+            # identity rather than registering a duplicate.
+            _imported=false
+            if [[ "${_profile}" == "adsbexchange" ]]; then
+                for _legacy_path in \
+                    /usr/local/share/adsbexchange/adsbx-uuid \
+                    /boot/adsbx-uuid; do
+                    if [[ -f "${_legacy_path}" ]]; then
+                        _legacy_uuid=$(tr -d '[:space:]' < "${_legacy_path}")
+                        if [[ ${_legacy_uuid} =~ ${_uuid_regex} ]]; then
+                            echo "${_legacy_uuid}" > "${_profile_uuid_file}"
+                            log_info "${_profile} UUID imported from legacy path ${_legacy_path}: ${_legacy_uuid}"
+                            log_info "To avoid duplicate feeders, disable the native feedclient on the host:"
+                            log_info "  sudo systemctl disable --now adsbexchange-feed adsbexchange-mlat"
+                            _imported=true
+                            break
+                        fi
+                    fi
+                done
+            fi
+            if [[ "${_imported}" != "true" ]]; then
+                _new_uuid=$(cat /proc/sys/kernel/random/uuid)
+                echo "${_new_uuid}" > "${_profile_uuid_file}"
+                log_info "${_profile} UUID auto-generated: ${_new_uuid}"
+                if [[ "${_profile}" == "adsbexchange" ]]; then
+                    log_warn "If replacing an existing feeder, set ${_env_var_name}=<old-uuid> to preserve identity"
+                fi
+            fi
+            # Warn about persistence — if /config is not a Docker volume the
+            # UUID will be lost on container recreation, creating a new feeder.
+            log_warn "Ensure /config is a persistent Docker volume to prevent UUID regeneration on restart"
         fi
 
         # Validate UUID format
@@ -115,6 +146,43 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
             log_info "ADSBx stats URL: https://www.adsbexchange.com/api/feeders/?feed=${_adsbx_uuid}"
         fi
         log_info "ADSBx account linking: visit https://adsbexchange.com/myip/ and click the pre-selected Feed UID to link"
+
+        # ── Duplicate feeder detection ────────────────────────────────────
+        # If the native ADSBexchange feedclient is also running on the host
+        # (e.g. adsbexchange-feed / adsbexchange-mlat systemd services),
+        # ADSBx will see TWO feeders from the same IP with different UUIDs.
+        # We can't reliably detect host services from inside a container,
+        # so we check for the legacy UUID file — if it exists but differs
+        # from ours, the native client is likely still active.
+        for _legacy_path in \
+            /usr/local/share/adsbexchange/adsbx-uuid \
+            /boot/adsbx-uuid; do
+            if [[ -f "${_legacy_path}" ]]; then
+                _legacy_uuid=$(tr -d '[:space:]' < "${_legacy_path}")
+                if [[ -n "${_legacy_uuid}" ]] && [[ "${_legacy_uuid}" != "${_adsbx_uuid}" ]]; then
+                    log_warn "CONFLICT: Legacy UUID file ${_legacy_path} contains a DIFFERENT UUID (${_legacy_uuid})"
+                    log_warn "This container is feeding as ${_adsbx_uuid}"
+                    log_warn "If a native feedclient is still running, ADSBx sees TWO feeders from your IP."
+                    log_warn "Fix option 1: Stop the native feedclient:"
+                    log_warn "  sudo systemctl disable --now adsbexchange-feed adsbexchange-mlat"
+                    log_warn "Fix option 2: Reuse the old UUID in this container:"
+                    log_warn "  Set env FEED_UUID_ADSBEXCHANGE=${_legacy_uuid}"
+                fi
+                break
+            fi
+        done
+
+        # ── MLAT guidance ─────────────────────────────────────────────────
+        # The ADSBexchange mlat-client also requires the feeder UUID (via
+        # --uuid-file) plus a human-readable name (--user) and precise
+        # lat/lon/alt. MLAT is NOT handled by this container; run it as a
+        # separate sidecar (e.g. blackoutsecure/mlat-client) that connects
+        # to readsb's beast output on port 30005. The sidecar must use the
+        # SAME UUID stored in /config/feed-uuid-adsbexchange.
+        if [[ -n "${_adsbx_uuid}" ]]; then
+            log_info "MLAT: Run a separate mlat-client sidecar using UUID ${_adsbx_uuid}"
+            log_info "MLAT: mlat-client --user <YOUR_NAME> --uuid-file /config/feed-uuid-adsbexchange ..."
+        fi
     fi
 fi
 
