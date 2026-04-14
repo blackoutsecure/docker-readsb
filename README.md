@@ -919,6 +919,9 @@ Do **not** enable bias-T if:
 
 > **Warning**: Sending DC voltage to a device not designed for it won't damage most modern RTL-SDR dongles (they have short-circuit protection), but it's best practice to only enable when needed.
 
+> [!NOTE]
+> **Externally powered LNA?** If your LNA has its own power source (e.g., micro-USB or barrel jack), you **must** set `READSB_BIASTEE=false` (the default). Enabling bias-T when the LNA is already externally powered provides no benefit, and in some configurations may cause unexpected behavior. The LNA will function normally using its own power supply — bias-T is only needed when the LNA has no other power source.
+
 > [!CAUTION]
 > **Only enable `READSB_BIASTEE=true` if your antenna or inline LNA requires DC power via coax.** Bias-T is disabled by default. If you are unsure whether your setup needs it, leave it off and consult your antenna/LNA documentation.
 
