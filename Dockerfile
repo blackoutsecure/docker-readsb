@@ -25,6 +25,7 @@ RUN apk add --no-cache \
         ca-certificates \
         git \
         librtlsdr-dev \
+        linux-headers \
         ncurses-dev \
         pkgconf \
         wget \
