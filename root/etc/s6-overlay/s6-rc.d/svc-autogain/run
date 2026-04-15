@@ -44,6 +44,11 @@ mkdir -p "${STATE_DIR}"
 # Consecutive low-message counter (ephemeral — resets on container restart)
 stall_count=0
 
+# Track how many times we've done a full stall→auto reset cycle.
+# If we keep cycling, the problem is NOT gain — it's hardware/antenna.
+auto_reset_count=0
+AUTO_RESET_DIAG_THRESHOLD=2  # emit diagnostics after 2 full reset cycles
+
 STATS_FILE="${READSB_RUN_DIR:-/run/readsb}/stats.json"
 
 export LC_ALL=C
@@ -138,6 +143,32 @@ while true; do
         log_info "Not enough new messages (${delta_total}/${MIN_MESSAGES}). Skipping adjustment. (stall ${stall_count}/${STALL_RESET_CYCLES})"
 
         if [[ ${stall_count} -ge ${STALL_RESET_CYCLES} ]]; then
+            auto_reset_count=$((auto_reset_count + 1))
+
+            if [[ ${auto_reset_count} -ge ${AUTO_RESET_DIAG_THRESHOLD} ]]; then
+                log_error "════════════════════════════════════════════════════════════════════"
+                log_error "AUTOGAIN: Gain reset has cycled ${auto_reset_count} times without receiving"
+                log_error "enough messages. The problem is NOT gain — it is likely hardware."
+                log_error ""
+                if [[ "${READSB_BIASTEE:-false}" =~ ^(false|no|0)$ ]]; then
+                    log_error "  ► BIAS-T IS OFF — if your antenna/LNA needs 5V power through"
+                    log_error "    the coax, set READSB_BIASTEE=true. (Skip if externally powered.)"
+                fi
+                log_error "  ► USB POWER — extension cables cause voltage drop. RTL-SDR dongles"
+                log_error "    fail silently at <4.5V. Remove extension cables or use a powered hub."
+                if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
+                    log_error "  ► DVB KERNEL MODULE IS LOADED — may be stealing the dongle."
+                    log_error "    Blacklist on host: echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtlsdr.conf"
+                fi
+                log_error "  ► Check antenna connections, cable quality, correct dongle assignment"
+                log_error "  ► Try: rtl_test -d 1090 on the host to verify the dongle receives"
+                log_error "════════════════════════════════════════════════════════════════════"
+                log_warn "Autogain will stop resetting and hold current gain to avoid restart loops."
+                log_warn "Fix the hardware issue and restart the container."
+                # Stop the pointless reset loop — hold at current gain and sleep
+                exec sleep infinity
+            fi
+
             log_warn "Autogain stalled for ${stall_count} consecutive cycles — resetting gain to auto."
             echo "auto" > "${GAIN_FILE}"
             current_gain="auto"

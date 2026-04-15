@@ -81,6 +81,15 @@ json_stat=$(stat --printf="%Y" "${JSON_FILE}" 2>/dev/null || echo "0")
 old_age=${AGE_COMPLAIN}
 last_console_stats=0
 
+# ── Low-reception health monitoring ───────────────────────────────────────────
+# Track consecutive console-stats cycles with zero aircraft to detect persistent
+# reception problems (unpowered LNA, wrong antenna, DVB module interference).
+_low_rx_count=0
+_LOW_RX_THRESHOLD=5          # cycles (~10 min at default 120s interval)
+_LOW_RX_MSG_THRESHOLD=50     # total messages — below this after threshold is "near-zero"
+_low_rx_warned=false
+_prev_msgs=0
+
 # Random startup jitter to reduce load spikes on ADSBx servers
 if [[ "${adsbx_upload}" == "true" ]]; then
     sleep "$(( RANDOM % ADSBX_UPLOAD_INTERVAL )).$(( RANDOM % 100 ))"
@@ -166,5 +175,54 @@ while true; do
         _msgs=$(jq -r '.messages // 0' < "${JSON_FILE}" 2>/dev/null || echo "?")
         log_info "stats: ${_ac_count} aircraft tracked (${_ac_with_pos} with position), ${_msgs} messages total"
         last_console_stats=${now}
+
+        # ── Low-reception health check ─────────────────────────────────────
+        if [[ "${_ac_count}" == "0" && "${_msgs}" != "?" ]]; then
+            _msg_delta=0
+            if [[ ${_prev_msgs} -gt 0 && ${_msgs} -ge ${_prev_msgs} ]]; then
+                _msg_delta=$(( _msgs - _prev_msgs ))
+            fi
+            _prev_msgs=${_msgs}
+
+            if [[ ${_msg_delta} -lt 5 ]]; then
+                _low_rx_count=$(( _low_rx_count + 1 ))
+            else
+                _low_rx_count=0
+                _low_rx_warned=false
+            fi
+
+            if [[ ${_low_rx_count} -ge ${_LOW_RX_THRESHOLD} && "${_low_rx_warned}" != "true" ]]; then
+                log_warn "──────────────────────────────────────────────────────────────────"
+                log_warn "RECEPTION PROBLEM: 0 aircraft for ${_low_rx_count} consecutive checks (~$(( _low_rx_count * STATS_LOG_INTERVAL / 60 )) min)"
+                log_warn "Only ${_msgs} total messages since startup — expected thousands per minute."
+                log_warn ""
+                log_warn "Troubleshooting checklist:"
+                if [[ "${READSB_BIASTEE:-false}" =~ ^(false|no|0)$ ]]; then
+                    log_warn "  1. BIAS-T IS OFF — if your LNA/preamp needs 5V power through the coax,"
+                    log_warn "     set READSB_BIASTEE=true. (Skip if your LNA is externally powered.)"
+                else
+                    log_warn "  1. Bias-T is enabled — verify your LNA is actually receiving power"
+                fi
+                log_warn "  2. USB POWER — extension cables and shared USB buses cause voltage drop."
+                log_warn "     RTL-SDR dongles malfunction silently at <4.5V. Try removing any USB"
+                log_warn "     extension cable, use a powered USB hub, or split dongles across ports."
+                log_warn "  3. Check antenna cable connections (loose SMA, damaged coax, water ingress)"
+                log_warn "  4. Verify the 1090 MHz antenna is on the correct RTL-SDR dongle"
+                if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
+                    log_warn "  4. DVB KERNEL MODULE IS LOADED — it may be stealing the dongle."
+                    log_warn "     Blacklist on host: echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtlsdr.conf"
+                else
+                    log_warn "  4. DVB kernel module is not loaded (OK)"
+                fi
+                log_warn "  5. Try a different USB port or shorter USB cable"
+                log_warn "  6. Run rtl_test -d 1090 on the host to verify the dongle works"
+                log_warn "──────────────────────────────────────────────────────────────────"
+                _low_rx_warned=true
+            fi
+        else
+            _low_rx_count=0
+            _low_rx_warned=false
+            _prev_msgs=${_msgs}
+        fi
     fi
 done

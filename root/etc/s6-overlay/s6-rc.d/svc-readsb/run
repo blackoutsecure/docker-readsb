@@ -419,6 +419,26 @@ else
             log_kv "LSUSB" "unavailable"
         fi
 
+        # ── USB topology / power warnings ────────────────────────────────────
+        # Detect multiple RTL-SDR dongles sharing a single USB bus and warn
+        # about potential power starvation — especially common with USB
+        # extension cables on Raspberry Pi.
+        if command -v lsusb >/dev/null 2>&1; then
+            _rtl_buses=$(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' \
+                         | sed -nE 's/^Bus ([0-9]+) .*/\1/p' | sort)
+            _rtl_count=$(echo "${_rtl_buses}" | grep -c . 2>/dev/null || echo 0)
+            _unique_buses=$(echo "${_rtl_buses}" | sort -u | wc -l | tr -d '[:space:]')
+
+            if [[ ${_rtl_count} -ge 2 && ${_unique_buses} -eq 1 ]]; then
+                _shared_bus=$(echo "${_rtl_buses}" | head -1)
+                log_warn "All ${_rtl_count} RTL-SDR dongles share USB Bus ${_shared_bus}."
+                log_warn "Combined draw (~${_rtl_count}×300mA) through one USB port/hub may cause"
+                log_warn "voltage drop — especially with USB extension cables."
+                log_warn "If reception is very low, try a powered USB hub or split dongles"
+                log_warn "across different USB ports/controllers."
+            fi
+        fi
+
         if [[ ! -e /dev/bus/usb ]]; then
             log_warn "/dev/bus/usb is missing. Local RTL-SDR access will fail unless using network-only input."
         elif [[ ! -r /dev/bus/usb ]]; then
