@@ -187,25 +187,32 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
             sleep 2
         fi
 
-        # Step 3: If rmmod failed but unbind succeeded, the DVB module is still
-        # loaded and could re-attach.  Perform a USB device reset on each RTL-SDR
-        # dongle to clear stale DVB state from the RTL2832U chip, then re-unbind
-        # in case the reset triggered automatic driver re-probing.
-        if [[ "${_dvb_unbound}" == "true" && "${_mod_removed}" != "true" ]]; then
-            if command -v usb-reset >/dev/null 2>&1; then
+        # Step 3: USB reset to clear stale DVB state from the RTL2832U chip.
+        # The DVB driver configures the demodulator registers for DVB-T mode;
+        # rmmod removes the driver but leaves the chip in that state.
+        # A USB reset forces the chip to power-cycle and re-enumerate, putting
+        # the demodulator back to its default (clean) state.
+        #
+        # CAVEAT: USB reset triggers device re-enumeration, which causes udev
+        # on the host to re-load the DVB module.  We must:
+        #   reset → wait → unbind re-loaded driver → rmmod → reset again
+        # The second reset clears the DVB state left by the re-loaded driver.
+        if command -v usb-reset >/dev/null 2>&1; then
+            _usb_reset_rtlsdr() {
+                local _msg="$1"
                 while IFS= read -r _devpath; do
                     if [[ -c "${_devpath}" ]]; then
-                        log_info "Resetting USB device: ${_devpath} (clearing stale DVB state)"
+                        log_info "Resetting USB device: ${_devpath} (${_msg})"
                         usb-reset "${_devpath}" 2>&1 | while IFS= read -r _line; do
                             log_info "usb-reset: ${_line}"
                         done || true
                     fi
                 done < <(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' | \
                          sed -nE 's|^Bus ([0-9]+) Device ([0-9]+):.*|/dev/bus/usb/\1/\2|p')
-                sleep 2
+            }
 
-                # Re-unbind: USB reset re-enumerates the device, which may cause
-                # the still-loaded DVB module to re-attach automatically.
+            _unbind_dvb_drivers() {
+                local _found=false
                 for _dvb_drv_name in dvb_usb_rtl28xxu dvb_usb_v2; do
                     _dvb_driver_path="/sys/bus/usb/drivers/${_dvb_drv_name}"
                     if [[ -d "${_dvb_driver_path}" ]]; then
@@ -213,67 +220,46 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
                             _intf=$(basename "${_bound}")
                             [[ "${_intf}" == *:* ]] || continue
                             if echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null; then
-                                log_info "Re-unbound '${_intf}' from ${_dvb_drv_name} after USB reset."
+                                log_info "Unbound '${_intf}' from ${_dvb_drv_name}."
+                                _found=true
                             fi
                         done
                     fi
                 done
-                sleep 1
-            else
-                log_warn "usb-reset not found — RTL-SDR may not receive data if DVB left stale state."
-                log_warn "On the host, blacklist DVB modules: echo -e 'blacklist dvb_usb_rtl28xxu\\nblacklist dvb_usb_v2\\nblacklist dvb_core' > /etc/modprobe.d/blacklist-rtlsdr.conf"
-            fi
-        fi
-    fi
+                [[ "${_found}" == "true" ]]
+            }
 
-    # ── Unconditional USB reset (post-reboot demodulator fixup) ───────────────
-    # ALWAYS reset RTL-SDR USB devices before opening them.  Even when DVB
-    # modules were successfully removed (rmmod succeeds because refcount is 0),
-    # the RTL2832U chip's demodulator registers may still be in DVB mode from
-    # the kernel's initial probe during boot.  A USB reset forces the chip to
-    # re-enumerate and puts the demodulator back into a clean state for
-    # librtlsdr.  This is the definitive fix for "0 messages after reboot".
-    #
-    # CAVEAT: USB reset causes the kernel to re-enumerate the device, which
-    # can trigger udev on the host to auto-load the DVB module again.
-    # After the reset, we must unbind + rmmod any re-loaded DVB modules.
-    if command -v usb-reset >/dev/null 2>&1; then
-        _did_usb_reset=false
-        while IFS= read -r _devpath; do
-            if [[ -c "${_devpath}" ]]; then
-                log_info "Resetting USB device: ${_devpath} (ensuring clean demodulator state)"
-                usb-reset "${_devpath}" 2>&1 | while IFS= read -r _line; do
-                    log_info "usb-reset: ${_line}"
-                done || true
-                _did_usb_reset=true
-            fi
-        done < <(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' | \
-                 sed -nE 's|^Bus ([0-9]+) Device ([0-9]+):.*|/dev/bus/usb/\1/\2|p')
-        if [[ "${_did_usb_reset}" == "true" ]]; then
-            sleep 2
-            # USB reset triggers device re-enumeration, which can cause udev
-            # on the host to auto-load DVB modules.  Unbind + rmmod again.
-            for _dvb_drv_name in dvb_usb_rtl28xxu dvb_usb_v2; do
-                _dvb_driver_path="/sys/bus/usb/drivers/${_dvb_drv_name}"
-                if [[ -d "${_dvb_driver_path}" ]]; then
-                    for _bound in "${_dvb_driver_path}"/*/; do
-                        _intf=$(basename "${_bound}")
-                        [[ "${_intf}" == *:* ]] || continue
-                        if echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null; then
-                            log_info "Unbound '${_intf}' from ${_dvb_drv_name} after USB reset."
+            _rmmod_dvb() {
+                local _removed=false
+                for _mod in dvb_usb_rtl28xxu dvb_usb_v2 rtl2832 rtl2830 dvb_core; do
+                    if [[ -d /sys/module/${_mod} ]]; then
+                        if rmmod "${_mod}" 2>/dev/null; then
+                            log_info "Removed kernel module '${_mod}'."
+                            _removed=true
                         fi
-                    done
-                fi
-            done
-            # rmmod any re-loaded DVB modules (prevents further re-attachment)
-            for _mod in dvb_usb_rtl28xxu dvb_usb_v2 rtl2832 rtl2830 dvb_core; do
-                if [[ -d /sys/module/${_mod} ]]; then
-                    if rmmod "${_mod}" 2>/dev/null; then
-                        log_info "Removed re-loaded kernel module '${_mod}' after USB reset."
                     fi
-                fi
-            done
-            sleep 1
+                done
+                [[ "${_removed}" == "true" ]]
+            }
+
+            # First reset: clear DVB state from initial boot probe
+            _usb_reset_rtlsdr "clearing DVB state from boot"
+            sleep 2
+
+            # udev will have re-loaded DVB modules — clean them up
+            _unbind_dvb_drivers && sleep 1
+            _rmmod_dvb && sleep 1
+
+            # Second reset: clear DVB state left by the re-loaded modules
+            _usb_reset_rtlsdr "final cleanup after DVB re-load"
+            sleep 2
+
+            # Final unbind+rmmod: udev may have loaded DVB again after second reset
+            _unbind_dvb_drivers && sleep 1
+            _rmmod_dvb
+        else
+            log_warn "usb-reset not found — RTL-SDR may not receive data if DVB left stale state."
+            log_warn "On the host, blacklist DVB modules: echo -e 'blacklist dvb_usb_rtl28xxu\\nblacklist dvb_usb_v2\\nblacklist dvb_core' > /etc/modprobe.d/blacklist-rtlsdr.conf"
         fi
     fi
 fi
@@ -572,6 +558,10 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
     done
     if [[ "${_final_unbound}" == "true" ]]; then
         sleep 1
+        # rmmod after unbind
+        for _mod in dvb_usb_rtl28xxu dvb_usb_v2 rtl2832 rtl2830 dvb_core; do
+            [[ -d /sys/module/${_mod} ]] && rmmod "${_mod}" 2>/dev/null || true
+        done
         # USB reset to clear stale DVB state from the RTL2832U chip
         if command -v usb-reset >/dev/null 2>&1; then
             while IFS= read -r _devpath; do
@@ -584,7 +574,7 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
             done < <(lsusb 2>/dev/null | grep -iE '0bda:(2832|2838)' | \
                      sed -nE 's|^Bus ([0-9]+) Device ([0-9]+):.*|/dev/bus/usb/\1/\2|p')
             sleep 2
-            # Re-unbind: reset may re-trigger DVB driver attachment
+            # Re-unbind + rmmod: reset may re-trigger DVB driver attachment
             for _dvb_drv_name in dvb_usb_rtl28xxu dvb_usb_v2; do
                 _dvb_driver_path="/sys/bus/usb/drivers/${_dvb_drv_name}"
                 if [[ -d "${_dvb_driver_path}" ]]; then
@@ -594,6 +584,9 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
                         echo -n "${_intf}" > "${_dvb_driver_path}/unbind" 2>/dev/null || true
                     done
                 fi
+            done
+            for _mod in dvb_usb_rtl28xxu dvb_usb_v2 rtl2832 rtl2830 dvb_core; do
+                [[ -d /sys/module/${_mod} ]] && rmmod "${_mod}" 2>/dev/null || true
             done
             sleep 1
         fi
