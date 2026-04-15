@@ -96,6 +96,8 @@ RUN apk add --no-cache \
         curl \
         jq \
         kmod \
+        procps \
+        psmisc \
         rtl-sdr \
         usbutils
 

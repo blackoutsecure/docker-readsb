@@ -496,9 +496,33 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
     fi
 fi
 
+# ── Kill stale readsb processes ────────────────────────────────────────────────
+# After a crash the old readsb (or its wrapping bash/pipe) may still hold
+# listening sockets open.  Kill any lingering instances before we try to bind.
+_kill_stale_readsb() {
+    local _stale_pids
+    _stale_pids=$(pgrep -x readsb 2>/dev/null || true)
+    if [[ -n "${_stale_pids}" ]]; then
+        log_warn "Found stale readsb process(es): ${_stale_pids// /, } — sending SIGTERM."
+        # shellcheck disable=SC2086
+        kill ${_stale_pids} 2>/dev/null || true
+        sleep 2
+        # Force-kill any survivors
+        _stale_pids=$(pgrep -x readsb 2>/dev/null || true)
+        if [[ -n "${_stale_pids}" ]]; then
+            log_warn "Stale readsb still running — sending SIGKILL."
+            # shellcheck disable=SC2086
+            kill -9 ${_stale_pids} 2>/dev/null || true
+            sleep 1
+        fi
+    fi
+}
+_kill_stale_readsb
+
 # ── Wait for listening ports to be available ──────────────────────────────────
 # After a crash, TCP sockets may linger in TIME_WAIT.  Wait up to 15 seconds
 # for the ports specified in --net-bi-port / --net-bo-port to become available.
+# If passive waiting fails, forcefully kill the process holding the port.
 _wait_for_ports() {
     local _ports_csv=""
     local _prev=""
@@ -527,7 +551,27 @@ _wait_for_ports() {
             _attempts=$(( _attempts + 1 ))
         done
         if [[ ${_attempts} -ge 15 ]]; then
-            log_warn "Port ${_p} is still occupied after 15s. readsb may fail to bind."
+            log_warn "Port ${_p} is still occupied after 15s — killing holder."
+            # Use fuser to identify and kill the process holding the port
+            if command -v fuser >/dev/null 2>&1; then
+                fuser -k "${_p}/tcp" 2>/dev/null || true
+                sleep 1
+            else
+                # Fallback: extract PID from ss output
+                local _holder_pid
+                _holder_pid=$(ss -tlnpH "sport = :${_p}" 2>/dev/null \
+                    | grep -oP 'pid=\K[0-9]+' | head -1 || true)
+                if [[ -n "${_holder_pid}" ]]; then
+                    kill -9 "${_holder_pid}" 2>/dev/null || true
+                    sleep 1
+                fi
+            fi
+            # Final check
+            if ss -tlnH "sport = :${_p}" 2>/dev/null | grep -q ":${_p}"; then
+                log_warn "Port ${_p} could not be freed. readsb may fail to bind."
+            else
+                log_info "Port ${_p} freed after killing holder."
+            fi
         fi
     done
 }
