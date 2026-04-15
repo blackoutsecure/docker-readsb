@@ -240,21 +240,27 @@ else
 fi
 
 # ── DVB kernel module pre-cleanup ─────────────────────────────────────────────
-# If the dvb_usb_rtl28xxu kernel module grabbed the RTL-SDR while the
-# container was stopped, unbind it now so SDR enumeration tools (rtl_eeprom,
-# rtl_test) can access the device.  The main removal+reset happens later in
-# svc-readsb; this is a lightweight pre-pass for clean enumeration.
-if [[ -d /sys/bus/usb/drivers/dvb_usb_rtl28xxu ]]; then
-    _dvb_drv="/sys/bus/usb/drivers/dvb_usb_rtl28xxu"
-    for _bound in "${_dvb_drv}"/*/; do
-        _intf=$(basename "${_bound}")
-        [[ "${_intf}" == *:* ]] || continue
-        if echo -n "${_intf}" > "${_dvb_drv}/unbind" 2>/dev/null; then
-            log_info "Pre-enumeration: unbound '${_intf}' from dvb_usb_rtl28xxu"
-        fi
-    done
-    sleep 1
-fi
+# If a DVB kernel module grabbed the RTL-SDR while the container was stopped,
+# unbind it now so SDR enumeration tools (rtl_eeprom, rtl_test) can access
+# the device.  The main removal+reset happens later in svc-readsb; this is a
+# lightweight pre-pass for clean enumeration.
+# Check for BOTH the legacy driver (dvb_usb_rtl28xxu) and the newer framework
+# (dvb_usb_v2) which is used on newer kernels including balenaOS.
+_dvb_pre_unbound=false
+for _dvb_drv_name in dvb_usb_rtl28xxu dvb_usb_v2; do
+    _dvb_drv="/sys/bus/usb/drivers/${_dvb_drv_name}"
+    if [[ -d "${_dvb_drv}" ]]; then
+        for _bound in "${_dvb_drv}"/*/; do
+            _intf=$(basename "${_bound}")
+            [[ "${_intf}" == *:* ]] || continue
+            if echo -n "${_intf}" > "${_dvb_drv}/unbind" 2>/dev/null; then
+                log_info "Pre-enumeration: unbound '${_intf}' from ${_dvb_drv_name}"
+                _dvb_pre_unbound=true
+            fi
+        done
+    fi
+done
+[[ "${_dvb_pre_unbound}" == "true" ]] && sleep 1
 
 # ── SDR dongle auto-detection ─────────────────────────────────────────────────
 # Enumerate RTL-SDR dongles and persist device assignments for svc-readsb.
