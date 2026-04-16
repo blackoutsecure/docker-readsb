@@ -103,11 +103,37 @@ done
 unset _dt_prev _dt_tok
 
 # If device type is rtlsdr and no --gain was provided, apply gain source:
-# 1. READSB_AUTOGAIN=true → read managed gain from /config/autogain-gain
-# 2. Otherwise → default to --gain auto (hardware AGC)
+# 1. DVB contamination detected → force --gain auto (see below)
+# 2. READSB_AUTOGAIN=true → read managed gain from /config/autogain-gain
+# 3. Otherwise → default to --gain auto (hardware AGC)
+#
+# DVB contamination safety: when the DVB kernel module has claimed the RTL2832U,
+# the R820T tuner registers are left in DVB-T mode.  librtlsdr's manual-gain
+# path (rtlsdr_set_tuner_gain_mode=1) does NOT fully re-initialise the tuner
+# from this state — the result is a valid connection but near-zero reception.
+# The AGC path (--gain auto, mode=0) takes a different code path that properly
+# resets the R820T.  We detect DVB contamination and force --gain auto; the
+# autogain service will measure and apply the optimal gain within one cycle.
 if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
     _autogain_file="/config/autogain-gain"
-    if [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]] && [[ -f "${_autogain_file}" ]]; then
+
+    # Detect DVB module contamination before gain resolution
+    _dvb_contaminated=false
+    for _dvb_mod_name in dvb_usb_rtl28xxu dvb_usb_v2; do
+        if [[ -d /sys/module/${_dvb_mod_name} ]]; then
+            _dvb_contaminated=true
+            break
+        fi
+    done
+
+    if [[ "${_dvb_contaminated}" == "true" ]]; then
+        # DVB module is loaded — the R820T tuner registers are in DVB-T state.
+        # Force --gain auto so librtlsdr's AGC path properly re-initialises the
+        # tuner.  Autogain will restore the optimal value within one interval.
+        readsb_args+=(--gain auto)
+        _ag_val=$(tr -d '[:space:]' < "${_autogain_file}" 2>/dev/null || true)
+        log_warn "DVB module detected — using --gain auto instead of persisted gain (${_ag_val:-none}) for clean tuner init"
+    elif [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]] && [[ -f "${_autogain_file}" ]]; then
         _ag_val=$(tr -d '[:space:]' < "${_autogain_file}")
         if [[ -n "${_ag_val}" ]]; then
             readsb_args+=(--gain "${_ag_val}")
@@ -125,13 +151,18 @@ fi
 # DVB kernel modules (dvb_usb_rtl28xxu on older kernels, dvb_usb_v2 on newer)
 # auto-attach to RTL2832U devices and prevent userspace access (librtlsdr).
 #
-# The fix is simply: unbind + rmmod.  Do NOT perform USB resets — on the
-# Raspberry Pi's dwc_otg USB controller, USBDEVFS_RESET does not power-cycle
-# the chip; it only triggers re-enumeration, which causes udev on the host to
-# re-load the DVB modules and put the chip right back in DVB mode.
+# Fix: unbind + rmmod + SDR re-initialisation.
 #
-# Once the DVB modules are unloaded, librtlsdr (called by rtl_biast / readsb)
-# will properly initialise the RTL2832U demodulator into SDR mode on open().
+# After rmmod, the RTL2832U demodulator registers remain in DVB-T mode.
+# librtlsdr's rtlsdr_open() does NOT reliably recover from stale DVB register
+# state — the result is a working connection with near-zero message reception.
+# To fix this, we briefly open the device through librtlsdr (via rtl_eeprom)
+# after module removal to force rtlsdr_init_baseband() which rewrites the
+# demodulator, AGC, and tuner registers into SDR/IQ mode.
+#
+# Do NOT use USBDEVFS_RESET (usb-reset) — on the Raspberry Pi's dwc_otg USB
+# controller it triggers re-enumeration, causing udev on the host to reload
+# DVB modules and reclaim the chip.
 #
 # IMPORTANT: unbind all USB interfaces from the DVB driver BEFORE attempting
 # rmmod — the module cannot be unloaded while it still has bound devices.
@@ -182,11 +213,38 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
             fi
         done
         if [[ "${_mod_removed}" == "true" ]]; then
-            log_info "DVB cleanup complete. librtlsdr will initialise RTL2832U into SDR mode on open."
+            log_info "DVB cleanup complete."
             sleep 2
         elif [[ "${_dvb_unbound}" == "true" ]]; then
             log_warn "DVB drivers unbound but modules could not be removed."
             log_warn "On the host, blacklist DVB modules to prevent re-attachment."
+            sleep 1
+        fi
+
+        # ── SDR chip re-initialisation after DVB removal ─────────────────
+        # After removing DVB kernel modules the RTL2832U demodulator and
+        # tuner registers may still be configured for DVB-T mode.  Simply
+        # unloading the module does NOT reset the chip — librtlsdr's
+        # rtlsdr_open() often fails to fully recover from stale DVB state,
+        # resulting in near-zero message reception.
+        #
+        # Fix: briefly open the device through librtlsdr (via rtl_eeprom)
+        # to force rtlsdr_init_baseband() which rewrites the demodulator,
+        # AGC, and tuner registers into SDR/IQ mode.  Unlike USBDEVFS_RESET,
+        # this does NOT trigger USB re-enumeration, so the host's udev will
+        # not reload DVB modules after we close the handle.
+        _sdr_reinit_device="${READSB_DEVICE:-${SDR_1090_SERIAL:-${SDR_1090_INDEX:-0}}}"
+        if command -v rtl_eeprom >/dev/null 2>&1; then
+            log_info "Re-initialising RTL-SDR chip into SDR mode (device: ${_sdr_reinit_device})."
+            if timeout 5 rtl_eeprom -d "${_sdr_reinit_device}" >/dev/null 2>&1; then
+                log_info "RTL-SDR chip re-initialisation complete."
+            else
+                log_warn "rtl_eeprom probe failed — chip may still be in DVB state."
+            fi
+            sleep 1
+        elif command -v rtl_test >/dev/null 2>&1; then
+            log_info "Re-initialising RTL-SDR chip into SDR mode via rtl_test (device: ${_sdr_reinit_device})."
+            timeout 3 rtl_test -d "${_sdr_reinit_device}" -t >/dev/null 2>&1 || true
             sleep 1
         fi
     fi
@@ -486,13 +544,20 @@ if [[ ${_dt_val} == "rtlsdr" ]]; then
     done
     if [[ "${_final_unbound}" == "true" ]]; then
         sleep 1
-        # rmmod after unbind (no USB reset — dwc_otg re-triggers DVB via udev)
         for _mod in dvb_usb_rtl28xxu dvb_usb_v2 rtl2832 rtl2830 dvb_core; do
             if [[ -d /sys/module/${_mod} ]]; then
                 rmmod "${_mod}" 2>/dev/null && log_info "Removed '${_mod}' (final safety check)." || true
             fi
         done
         sleep 1
+
+        # Re-initialise the chip into SDR mode (same rationale as main cleanup)
+        _sdr_reinit_device="${READSB_DEVICE:-${SDR_1090_SERIAL:-${SDR_1090_INDEX:-0}}}"
+        if command -v rtl_eeprom >/dev/null 2>&1; then
+            log_info "Re-initialising RTL-SDR chip into SDR mode (final safety, device: ${_sdr_reinit_device})."
+            timeout 5 rtl_eeprom -d "${_sdr_reinit_device}" >/dev/null 2>&1 || true
+            sleep 1
+        fi
     fi
 fi
 
