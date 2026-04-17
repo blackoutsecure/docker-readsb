@@ -44,7 +44,7 @@ env:
   DOCKERFILE_PATH: ./Dockerfile
   READSB_REPO_URL: https://github.com/wiedehopf/readsb
   READSB_REPO_BRANCH: dev
-  BALENA_NAMESPACE: ${{ vars.BALENA_NAMESPACE || secrets.BALENA_USERNAME }}
+  BALENA_NAMESPACE: ${{ secrets.BALENA_USERNAME }}
   BALENA_BLOCK_RELEASE: readsb
   NO_CACHE: 'true'
 
@@ -149,7 +149,7 @@ jobs:
             runner: ubuntu-latest
             platform: linux/amd64
           - arch: arm64
-            runner: [self-hosted, Linux, ARM64, ubuntu-latest-arm64]
+            runner: [self-hosted, ubuntu-latest-arm64]
             platform: linux/arm64
 
     steps:
