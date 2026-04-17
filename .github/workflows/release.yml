@@ -238,7 +238,7 @@ jobs:
           docker run -d \\
             --name readsb \\
             -e TZ=Etc/UTC \\
-            -e READSB_ARGS="--net --device-type rtlsdr" \\
+            -e READSB_DEVICE_TYPE=rtlsdr \\
             -p 30001:30001 \\
             -p 30002:30002 \\
             -p 30003:30003 \\
@@ -331,7 +331,7 @@ jobs:
           docker run -d \
             --name readsb \
             -e TZ=Etc/UTC \
-            -e READSB_ARGS="--net --device-type rtlsdr" \
+            -e READSB_DEVICE_TYPE=rtlsdr \
             -p 30001:30001 \
             -p 30002:30002 \
             -p 30003:30003 \

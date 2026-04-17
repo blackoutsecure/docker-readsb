@@ -24,12 +24,14 @@ param_usage_include_net: false
 param_usage_include_env: true
 param_env_vars:
   - {env_var: "TZ", env_value: "Etc/UTC", desc: "Timezone (see TZ database)"}
-  - {env_var: "READSB_ARGS", env_value: "--net --device-type rtlsdr", desc: "Additional readsb arguments (auto-gain enabled by default for rtlsdr)"}
 
 # optional env variables
 opt_param_usage_include_env: true
 opt_param_env_vars:
+  - {env_var: "READSB_NET", env_value: "true", desc: "Enable TCP networking (Beast, raw, SBS protocol listeners). Default: true. Set to false for decode-only mode with no network ports. Required for feed profiles and most container use cases."}
+  - {env_var: "READSB_EXTRA_ARGS", env_value: "", desc: "Additional readsb command-line arguments appended after all env-var-driven options (e.g. --freq-correction 3, --max-range 350). Most settings have dedicated READSB_* env vars — use those first."}
   - {env_var: "READSB_USER", env_value: "abc", desc: "Runtime user (default: abc). USB permissions are fixed automatically during init."}
+  - {env_var: "READSB_DEVICE_TYPE", env_value: "rtlsdr", desc: "SDR device type. Set to rtlsdr for RTL-SDR dongles. Leave empty or omit for network-only mode (no local SDR hardware). Maps to --device-type."}
   - {env_var: "PUID", env_value: "1000", desc: "User ID for file ownership (LinuxServer.io base image standard)"}
   - {env_var: "PGID", env_value: "1000", desc: "Group ID for file ownership (LinuxServer.io base image standard)"}
   - {env_var: "FEED_PROFILES", env_value: "", desc: "Comma-separated list of exchanges to feed (e.g. adsbexchange,adsb-fi). Defaults to adsbexchange if unset."}
@@ -37,17 +39,14 @@ opt_param_env_vars:
   - {env_var: "FEED_STATS_ENABLED", env_value: "true", desc: "Enable periodic console stats logging and ADSBx RSSI/stats upload. Console stats log every STATS_LOG_INTERVAL seconds. ADSBx upload activates automatically when adsbexchange is in FEED_PROFILES, using the same UUID as the beast feed."}
   - {env_var: "STATS_LOG_INTERVAL", env_value: "120", desc: "Console stats logging interval in seconds. Default is 120 (every 2 minutes). Set to e.g. 60 for 1 min or 300 for 5 min."}
   - {env_var: "FEED_UAT_INPUT", env_value: "", desc: "UAT 978MHz data source as host:port (e.g. dump978:30978). Requires blackoutsecure/dump978 sidecar."}
-  - {env_var: "READSB_NET_BI_PORT", env_value: "", desc: "Beast protocol input port(s), comma-separated (e.g. 30004,30104). Maps to --net-bi-port. Ignored if --net-bi-port is already in READSB_ARGS."}
-  - {env_var: "READSB_NET_BO_PORT", env_value: "", desc: "Beast protocol output port(s), comma-separated (e.g. 30005). Maps to --net-bo-port. Ignored if --net-bo-port is already in READSB_ARGS."}
+  - {env_var: "READSB_NET_BI_PORT", env_value: "", desc: "Beast protocol input port(s), comma-separated (e.g. 30004,30104). Maps to --net-bi-port."}
+  - {env_var: "READSB_NET_BO_PORT", env_value: "", desc: "Beast protocol output port(s), comma-separated (e.g. 30005). Maps to --net-bo-port."}
   - {env_var: "READSB_DEVICE", env_value: "", desc: "Manual: RTL-SDR device index or serial for 1090 MHz (overrides auto-detection)"}
-  - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_ARGS)"}
-  - {env_var: "FEED_LON", env_value: "", desc: "Receiver longitude (fallback if --lon not in READSB_ARGS)"}
+  - {env_var: "FEED_LAT", env_value: "", desc: "Receiver latitude (fallback if --lat not in READSB_EXTRA_ARGS)"}
+  - {env_var: "FEED_LON", env_value: "", desc: "Receiver longitude (fallback if --lon not in READSB_EXTRA_ARGS)"}
   - {env_var: "READSB_AUTO_LOCATION", env_value: "true", desc: "Auto-detect location via IP geolocation when FEED_LAT/FEED_LON not set"}
-  - {env_var: "READSB_AUTOGAIN", env_value: "true", desc: "Enable automatic gain optimization. Analyzes strong signal percentage hourly and adjusts gain one step at a time. Persists to /config/autogain-gain. Overrides --gain auto with a managed fixed gain for better range. Set to false to use hardware AGC (--gain auto) instead."}
-  - {env_var: "READSB_AUTOGAIN_INTERVAL", env_value: "3600", desc: "How often (seconds) the autogain service checks and adjusts gain. Default 3600 (1 hour)."}
-  - {env_var: "READSB_AUTOGAIN_LOW", env_value: "0.5", desc: "Autogain low threshold (%). If strong signals fall below this, gain is increased."}
-  - {env_var: "READSB_AUTOGAIN_HIGH", env_value: "7.0", desc: "Autogain high threshold (%). If strong signals exceed this, gain is decreased."}
-  - {env_var: "READSB_AUTOGAIN_STALL_CYCLES", env_value: "3", desc: "Number of consecutive low-message cycles (< 1000 messages) before autogain resets to hardware AGC (--gain auto) to break a deadlock. Default 3 (3 hours at the default 1-hour interval). Set to 0 to disable stall recovery."}
+  - {env_var: "READSB_AUTOGAIN", env_value: "true", desc: "Enable readsb built-in autogain (--gain auto). Operates at the IQ sample level every ~0.5s, adjusting gain in-process without restarts. Set to false to disable (readsb will use max gain unless READSB_GAIN is set). Default: true."}
+  - {env_var: "READSB_GAIN", env_value: "", desc: "Set a fixed RTL-SDR gain value (e.g. 40.2). Overrides READSB_AUTOGAIN. When unset and READSB_AUTOGAIN=true, readsb uses built-in autogain (--gain auto). Only set this if you need a specific fixed gain."}
   - {env_var: "READSB_BIASTEE", env_value: "false", desc: "Enable bias-T DC voltage on the RTL-SDR coax to power external LNAs or active antennas. Requires RTL-SDR Blog V3/V4 or compatible dongle. WARNING: only enable if your antenna needs DC power — sending voltage to a passive antenna can damage some dongles."}
   - {env_var: "LOG_LEVEL", env_value: "info", desc: "Minimum log verbosity: debug, info (default), warn, error, fatal. ADSBx per-upload confirmations are debug-level. Set to debug to see them, or warn to suppress routine informational messages."}
 
@@ -79,15 +78,14 @@ app_setup_block: |
 
   **RTL-SDR Hardware**: Pass RTL-SDR USB device(s) to the container using `--device=/dev/bus/usb:/dev/bus/usb`.
 
-  **Automatic Gain Optimization**: Enabled by default (`READSB_AUTOGAIN=true`). Analyzes strong signal percentage hourly and steps through the RTL-SDR gain table to find the optimal fixed gain. Much better than hardware AGC. Gain persists across restarts in `/config/autogain-gain`. Includes automatic stall recovery — if too few messages are received for 3 consecutive cycles, gain resets to hardware AGC to break the deadlock. Set `READSB_AUTOGAIN=false` to fall back to `--gain auto`.
+  **Automatic Gain**: readsb's built-in autogain (`--gain auto`) is enabled by default (`READSB_AUTOGAIN=true`). It adjusts gain at the IQ sample level every ~0.5s, in-process without restarts. Set `READSB_AUTOGAIN=false` to disable. To override with a specific fixed gain, set `READSB_GAIN=40.2`. Use `--gain auto-verbose` in `READSB_EXTRA_ARGS` to see gain change log messages.
 
   **Bias-T Power**: Set `READSB_BIASTEE=true` to enable DC power on the coax for active antennas with built-in LNAs. Disabled by default — only enable if your antenna requires it.
 
-  **Custom Arguments**: Use `READSB_ARGS` to pass additional readsb options:
-  - `--gain 40` - Set manual gain (overrides autogain)
+  **Extra Arguments**: Use `READSB_EXTRA_ARGS` to pass additional readsb options not covered by dedicated env vars:
   - `--freq-correction 10` - Add frequency correction (PPM)
-  - `--lat 51.5 --lon -0.1` - Set location for range calculations
-  - `--max-range 350` - Set maximum detection range (km)
+  - `--max-range 350` - Set maximum detection range (nm)
+  - `--gain auto-verbose` - See autogain decisions in the log
 
   **Health Monitoring**: The image includes a Docker `HEALTHCHECK` that verifies `aircraft.json` freshness every 30 seconds. Use `docker inspect --format='{{.State.Health.Status}}' readsb` to check status.
 

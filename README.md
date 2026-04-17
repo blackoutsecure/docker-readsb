@@ -52,7 +52,7 @@ Quick links:
 - [Application Setup](#application-setup)
 - [SDR Device Selection](#sdr-device-selection)
 - [Feed Profiles](#feed-profiles)
-- [Automatic Gain Optimization](#automatic-gain-optimization)
+- [Gain Control](#gain-control)
 - [Bias-T Power for Active Antennas](#bias-t-power-for-active-antennas)
 - [Advanced Tuning](#advanced-tuning)
 - [Troubleshooting](#troubleshooting)
@@ -72,8 +72,7 @@ docker run -d \
   --name=readsb \
   --restart unless-stopped \
   -e TZ=Etc/UTC \
-  -e READSB_ARGS="--net --device-type rtlsdr" \
-  -e READSB_AUTOGAIN=true \
+  -e READSB_DEVICE_TYPE=rtlsdr \
   -p 30001:30001 \
   -p 30002:30002 \
   -p 30003:30003 \
@@ -154,10 +153,9 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
+      - READSB_DEVICE_TYPE=rtlsdr
       - READSB_NET_BI_PORT=30004,30104  # Beast input ports
       - READSB_NET_BO_PORT=30005        # Beast output port
-      - READSB_AUTOGAIN=true          # automatic gain optimization (recommended)
       # - READSB_BIASTEE=true          # enable for powered LNAs (e.g. SAWbird+)
       - LOG_LEVEL=info                 # debug | info | warn | error | fatal
     volumes:
@@ -190,7 +188,7 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --lon <longitude> --lat <latitude>
+      - READSB_EXTRA_ARGS=--lon <longitude> --lat <latitude>
     volumes:
       - /path/to/readsb/config:/config
       - /path/to/readsb/json:/run/readsb
@@ -219,8 +217,7 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
-      - READSB_AUTOGAIN=true
+      - READSB_DEVICE_TYPE=rtlsdr
       # - READSB_BIASTEE=true          # enable for powered LNAs (e.g. SAWbird+)
       - FEED_UAT_INPUT=dump978:30978
       # - READSB_DEVICE=00001090  # pin 1090 dongle by serial
@@ -284,8 +281,7 @@ volumes:
 docker run -d \
   --name=readsb \
   -e TZ=Etc/UTC \
-  -e READSB_ARGS="--net --device-type rtlsdr" \
-  -e READSB_AUTOGAIN=true \
+  -e READSB_DEVICE_TYPE=rtlsdr \
   -p 30001:30001 \
   -p 30002:30002 \
   -p 30003:30003 \
@@ -330,26 +326,25 @@ For deployment via the web interface, use the deploy button in this repository. 
 | Parameter | Function | Required |
 | :----: | --- | :---: |
 | `-e TZ=Etc/UTC` | Timezone ([TZ database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones#List)) | Optional |
-| `-e READSB_ARGS=` | Additional arguments for readsb | Optional |
+| `-e READSB_NET=true` | Enable TCP networking (Beast, raw, SBS listeners). Default: `true`. Set to `false` for decode-only mode. | Optional |
+| `-e READSB_DEVICE_TYPE=rtlsdr` | SDR device type (`rtlsdr`, `modesbeast`, etc.). Leave empty for network-only mode. Maps to `--device-type`. | Optional |
+| `-e READSB_EXTRA_ARGS=` | Additional readsb arguments appended after all env-var-driven options (e.g. `--freq-correction 3`). | Optional |
 | `-e READSB_USER=abc` | Runtime user (default: `abc`). USB permissions are fixed automatically during init. | Optional |
 | `-e PUID=1000` | User ID for file ownership (LinuxServer.io base image standard) | Optional |
 | `-e PGID=1000` | Group ID for file ownership (LinuxServer.io base image standard) | Optional |
-| `-e READSB_NET_BI_PORT=` | Beast protocol input port(s), comma-separated (e.g. `30004,30104`). Maps to `--net-bi-port`. Ignored if `--net-bi-port` is already in `READSB_ARGS`. | Optional |
-| `-e READSB_NET_BO_PORT=` | Beast protocol output port(s), comma-separated (e.g. `30005`). Maps to `--net-bo-port`. Ignored if `--net-bo-port` is already in `READSB_ARGS`. | Optional |
+| `-e READSB_NET_BI_PORT=` | Beast protocol input port(s), comma-separated (e.g. `30004,30104`). Maps to `--net-bi-port`. | Optional |
+| `-e READSB_NET_BO_PORT=` | Beast protocol output port(s), comma-separated (e.g. `30005`). Maps to `--net-bo-port`. | Optional |
 | `-e READSB_DEVICE=` | RTL-SDR device index or serial for 1090 MHz (overrides auto-detection) | Optional |
 | `-e FEED_PROFILES=` | Comma-separated feed exchanges (e.g. `adsbexchange,adsb-fi`). Defaults to `adsbexchange` if unset. | Optional |
 | `-e FEED_UUID_ADSBEXCHANGE=` | Per-profile UUID override. Use uppercase profile name with hyphens as underscores (e.g. `FEED_UUID_ADSB_FI`, `FEED_UUID_AIRPLANESLIVE`). Stored in `/config/feed-uuid-<profile>`. | Optional |
 | `-e FEED_STATS_ENABLED=true` | Enable periodic console stats logging and ADSBx RSSI/stats upload. Console stats log aircraft count, positions, and message totals. ADSBx upload activates automatically when `adsbexchange` is in `FEED_PROFILES`, using the same UUID as the beast feed. | Optional |
 | `-e STATS_LOG_INTERVAL=120` | Console stats logging interval in seconds (default: `120` = every 2 minutes) | Optional |
 | `-e FEED_UAT_INPUT=` | UAT 978 MHz source as `host:port` (e.g. `dump978:30978`). Requires [docker-dump978](https://github.com/blackoutsecure/docker-dump978) sidecar. US only. | Optional |
-| `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_ARGS`. | Optional |
-| `-e FEED_LON=` | Receiver longitude (e.g. `-122.3321`). Fallback if `--lon` not in `READSB_ARGS`. | Optional |
+| `-e FEED_LAT=` | Receiver latitude (e.g. `47.6062`). Fallback if `--lat` not in `READSB_EXTRA_ARGS`. | Optional |
+| `-e FEED_LON=` | Receiver longitude (e.g. `-122.3321`). Fallback if `--lon` not in `READSB_EXTRA_ARGS`. | Optional |
 | `-e READSB_AUTO_LOCATION=true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` not set. | Optional |
-| `-e READSB_AUTOGAIN=true` | Enable automatic gain optimization (default: `true`). Analyzes strong signal percentage hourly and adjusts gain for optimal range. Persists to `/config/autogain-gain`. Set to `false` for hardware AGC (`--gain auto`). | Optional |
-| `-e READSB_AUTOGAIN_INTERVAL=3600` | How often (seconds) the autogain service checks and adjusts gain. Default `3600` (1 hour). | Optional |
-| `-e READSB_AUTOGAIN_LOW=0.5` | Autogain low threshold (%). If strong signals fall below this, gain is increased. | Optional |
-| `-e READSB_AUTOGAIN_HIGH=7.0` | Autogain high threshold (%). If strong signals exceed this, gain is decreased. | Optional |
-| `-e READSB_AUTOGAIN_STALL_CYCLES=3` | Consecutive low-message cycles before autogain resets to `--gain auto` to break a deadlock. Default `3` (3 hours). Set to `0` to disable. | Optional |
+| `-e READSB_AUTOGAIN=true` | Enable readsb built-in autogain (`--gain auto`). Default: `true`. Set to `false` to disable. | Optional |
+| `-e READSB_GAIN=` | Set a fixed RTL-SDR gain value (e.g. `40.2`). Overrides `READSB_AUTOGAIN`. | Optional |
 | `-e READSB_BIASTEE=false` | Enable bias-T DC voltage on the RTL-SDR coax to power active antennas/LNAs (default: `false`). Only enable if your antenna requires DC power. | Optional |
 | `-e LOG_LEVEL=info` | Minimum log verbosity: `debug`, `info` (default), `warn`, `error`, `fatal`. Set to `debug` for verbose operational detail, or `warn` to suppress routine informational messages. | Optional |
 
@@ -457,7 +452,7 @@ The container runs readsb with network support and automatic RTL-SDR device dete
 - **JSON Output**: ADS-B data is output as JSON to `/run/readsb/` and updated frequently
 - **RTL-SDR Support**: USB devices are auto-detected when passed to the container; permissions are fixed automatically
 - **Aircraft Database**: Includes [tar1090 aircraft database](https://github.com/wiedehopf/tar1090-db) for accurate identification
-- **Automatic Gain Optimization**: Enabled by default — analyzes strong signal percentage and adjusts gain hourly for optimal range (see [Automatic Gain Optimization](#automatic-gain-optimization))
+- **Automatic Gain**: readsb's built-in autogain (`--gain auto`) is enabled by default (`READSB_AUTOGAIN=true`) — adjusts gain at the IQ sample level every ~0.5s, in-process without restarts. Set `READSB_AUTOGAIN=false` to disable.
 - **Bias-T Power**: Optional DC voltage on coax for active antennas with built-in LNAs (see [Bias-T Power for Active Antennas](#bias-t-power-for-active-antennas))
 - **Docker HEALTHCHECK**: Built-in health monitoring — marks container unhealthy if `aircraft.json` stops updating
 - **Periodic Stats**: Logs aircraft count, positions, and message totals every 2 minutes (configurable via `STATS_LOG_INTERVAL`). When `adsbexchange` is in `FEED_PROFILES`, also uploads RSSI/stats data to ADSBx every 5 seconds using the same UUID as the beast feed. Per-upload confirmations are `debug`-level.
@@ -465,31 +460,27 @@ The container runs readsb with network support and automatic RTL-SDR device dete
 - **Feed Status URLs**: Init logs include verification URLs for each active feed profile
 - **RTL-SDR Tools**: `rtl_test`, `rtl_eeprom`, and `rtl_biast` available inside the container for diagnostics, dongle tagging, and bias-T control
 
-### Customizing READSB_ARGS
+### Extra Arguments (READSB_EXTRA_ARGS)
 
-The `READSB_ARGS` environment variable allows you to customize readsb behavior. By default, automatic gain optimization manages gain via `svc-autogain`. Specifying `--gain` in `READSB_ARGS` overrides autogain entirely.
+Most readsb settings have dedicated `READSB_*` env vars (`READSB_NET`, `READSB_DEVICE_TYPE`, `READSB_GAIN`, `READSB_AUTOGAIN`, `READSB_BIASTEE`, `READSB_NET_BI_PORT`, etc.). Use `READSB_EXTRA_ARGS` for anything not covered by a dedicated variable — these are appended to the end of the command line after all env-var-driven options.
 
-**Common examples:**
+**Examples:**
 
 ```bash
-# RTL-SDR with default autogain (recommended)
--e READSB_ARGS="--net --device-type rtlsdr"
+# Frequency correction
+-e READSB_EXTRA_ARGS="--freq-correction 10"
 
-# Set Beast input/output ports via env vars (cleaner than embedding in READSB_ARGS)
--e READSB_NET_BI_PORT="30004,30104"
--e READSB_NET_BO_PORT="30005"
+# Location and range
+-e READSB_EXTRA_ARGS="--lat 51.5 --lon -0.1 --max-range 350"
 
-# Network-only mode (no local RTL-SDR)
--e READSB_ARGS="--net --lat 51.5 --lon -0.1"
+# See autogain decisions in the log
+-e READSB_EXTRA_ARGS="--gain auto-verbose"
 
-# Force a specific fixed gain (bypasses autogain)
--e READSB_ARGS="--net --device-type rtlsdr --gain 35"
-
-# Frequency correction and location
--e READSB_ARGS="--net --device-type rtlsdr --freq-correction 10 --lat 51.5 --lon -0.1 --max-range 350"
+# Multiple extra options
+-e READSB_EXTRA_ARGS="--freq-correction 3 --max-range 300 --ppm 2"
 ```
 
-For all available options, see the [readsb documentation](https://github.com/wiedehopf/readsb).
+For all available readsb options, see the [readsb documentation](https://github.com/wiedehopf/readsb).
 
 ### JSON Output Files
 
@@ -546,10 +537,13 @@ rtl_eeprom -d 1 -s 00000978   # tag second dongle as UAT
 | `FEED_STATS_ENABLED` | `true` | Enable periodic console stats logging and ADSBx RSSI/stats upload. ADSBx upload activates automatically when `adsbexchange` is in `FEED_PROFILES`, using the same UUID as the beast feed. |
 | `STATS_LOG_INTERVAL` | `120` | Console stats logging interval in seconds. Default is `120` (every 2 minutes). Set to e.g. `60` for 1 min or `300` for 5 min. |
 | `FEED_UAT_INPUT` | (empty) | UAT 978 MHz data source as `host:port` (e.g. `dump978:30978`). Only applies in the US. |
-| `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_ARGS`. |
-| `FEED_LON` | (empty) | Receiver longitude in decimal degrees. Used as fallback if `--lon` is not in `READSB_ARGS`. |
+| `FEED_LAT` | (empty) | Receiver latitude in decimal degrees. Used as fallback if `--lat` is not in `READSB_EXTRA_ARGS`. |
+| `FEED_LON` | (empty) | Receiver longitude in decimal degrees. Used as fallback if `--lon` is not in `READSB_EXTRA_ARGS`. |
 | `READSB_AUTO_LOCATION` | `true` | Auto-detect latitude/longitude via IP geolocation when `FEED_LAT`/`FEED_LON` are not set. Set to `false` to disable. |
-| `READSB_AUTOGAIN` | `true` | Automatic gain optimization. Analyzes strong signal percentage hourly and adjusts gain. See [Automatic Gain Optimization](#automatic-gain-optimization). |
+| `READSB_NET` | `true` | Enable TCP networking (Beast, raw, SBS listeners). Default: `true`. Set to `false` for decode-only mode with no network ports. |
+| `READSB_DEVICE_TYPE` | (empty) | SDR device type (`rtlsdr`, `modesbeast`, etc.). Leave empty for network-only mode. Maps to `--device-type`. |
+| `READSB_AUTOGAIN` | `true` | Enable readsb built-in autogain (`--gain auto`). Adjusts gain at the IQ sample level every ~0.5s. Set to `false` to disable (uses max gain unless `READSB_GAIN` is set). |
+| `READSB_GAIN` | (empty) | Set a fixed RTL-SDR gain value (e.g. `40.2`). Overrides `READSB_AUTOGAIN`. |
 | `READSB_NET_BI_PORT` | (none) | Beast protocol input port(s), comma-separated (e.g. `30004,30104`). Maps to `--net-bi-port`. |
 | `READSB_NET_BO_PORT` | (none) | Beast protocol output port(s), comma-separated (e.g. `30005`). Maps to `--net-bo-port`. |
 | `READSB_BIASTEE` | `false` | Bias-T DC power for active antennas. See [Bias-T Power for Active Antennas](#bias-t-power-for-active-antennas). |
@@ -612,8 +606,7 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
-      - READSB_AUTOGAIN=true
+      - READSB_DEVICE_TYPE=rtlsdr
       # - READSB_BIASTEE=true          # enable for powered LNAs (e.g. SAWbird+)
       - FEED_PROFILES=adsbexchange
       - FEED_LAT=51.5074
@@ -656,8 +649,7 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
-      - READSB_AUTOGAIN=true
+      - READSB_DEVICE_TYPE=rtlsdr
       - FEED_PROFILES=adsbexchange
     volumes:
       - readsb-config:/config
@@ -692,8 +684,7 @@ services:
     container_name: readsb
     environment:
       - TZ=Etc/UTC
-      - READSB_ARGS=--net --device-type rtlsdr
-      - READSB_AUTOGAIN=true
+      - READSB_DEVICE_TYPE=rtlsdr
       # - READSB_BIASTEE=true          # enable for powered LNAs (e.g. SAWbird+)
       - FEED_PROFILES=adsbexchange,adsb-fi,airplaneslive
       - FEED_LAT=51.5074
@@ -788,111 +779,118 @@ Some aggregators use proprietary protocols or require authentication that cannot
 
 ---
 
-## Automatic Gain Optimization
+## Gain Control
 
-The container includes an automatic gain optimization service (`svc-autogain`) that finds the optimal fixed gain for your RTL-SDR dongle. It is **enabled by default** and is the recommended way to manage gain.
+RTL-SDR dongles have a tunable Low-Noise Amplifier (LNA) in the R820T/R820T2 tuner with 29 discrete gain steps from 0.0 to 49.6 dB. Gain directly affects reception quality:
 
-### How It Works
+- **Too much gain** → the ADC (analog-to-digital converter) overloads, strong nearby signals clip, and you lose both close and distant aircraft
+- **Too little gain** → weak signals from distant aircraft are buried in the noise floor and never decoded
+- **Optimal gain** → the noise floor is just above the ADC's quantization noise, maximizing the dynamic range available for ADS-B signals
 
-RTL-SDR dongles have a tunable gain amplifier with discrete steps. Too much gain overloads the ADC (signals clip), too little gain means weak signals are lost in the noise floor. The autogain service finds the sweet spot:
+### Gain Modes Comparison
 
-1. Every hour (configurable), it reads `stats.json` from readsb
-2. Calculates the percentage of messages with RSSI > -3 dBFS ("strong signals")
-3. If strong signals are **below 0.5%** → gain is too low → **increase one step**
-4. If strong signals are **above 7.0%** → gain is too high (ADC overload) → **decrease one step**
-5. If strong signals are **between 0.5% and 7.0%** → gain is optimal → **no change**
-6. After adjustment, readsb is automatically restarted with the new gain value
+| Mode | `READSB_AUTOGAIN` | `READSB_GAIN` | How it works | When to use |
+|---|---|---|---|---|
+| **Autogain** (default) | `true` | (empty) | readsb's built-in algorithm monitors IQ noise floor statistics every ~0.5s and adjusts the R820T tuner gain in-process. Converges quickly on startup, makes fine adjustments as conditions change. | **Recommended for all users.** Best results with minimal effort. |
+| **Fixed gain** | `true` or `false` | e.g. `40.2` | A specific gain value from the R820T table is locked in. readsb will not adjust it. `READSB_GAIN` takes priority over `READSB_AUTOGAIN`. | When you've tested your RF environment and know the optimal value, or when autogain isn't converging well (rare). |
+| **Disabled (max gain)** | `false` | (empty) | No `--gain` flag is passed to readsb. readsb defaults to maximum gain (equivalent to `--gain 58` / hardware AGC). The R820T runs at its highest amplification. | **Not recommended.** Overloads most receivers. Only useful for extremely remote locations with zero nearby RF sources. |
 
-The gain value is persisted in `/config/autogain-gain` and survives container restarts.
+### How Autogain Works
 
-### Gain Step Table
+readsb's built-in autogain (`--gain auto`) is fundamentally different from older shell-script-based approaches:
 
-The service uses the same gain table as the upstream [autogain1090](https://github.com/wiedehopf/adsb-scripts) script:
+1. **Operates at the IQ sample level** — analyzes raw magnitude data from every USB transfer (~0.5s cycles), not decoded message statistics
+2. **Monitors noise floor** — tracks `noiseLowSamples`, `noiseHighSamples`, and `loudEvents` per buffer
+3. **Adjusts in-process** — changes gain via `rtlsdr_set_tuner_gain()` without restarting readsb
+4. **Fast startup convergence** — uses a gain sweep multiplier on first run, settling within seconds
+5. **Loud signal detection** — immediately lowers gain when clipping events are detected
 
-```
-0.0  0.9  1.4  2.7  3.7  7.7  8.7  12.5  14.4  15.7
-16.6 19.7 20.7 22.9 25.4 28.0 29.7 32.8  33.8  36.4
-37.2 38.6 40.2 42.1 43.4 43.9 44.5 48.0  49.6  -10 (max)
-```
-
-The initial gain starts at **49.6** (near-maximum) and steps down as needed. Most receivers settle between **25–44** depending on local RF environment.
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `READSB_AUTOGAIN` | `true` | Enable/disable autogain. Set to `false` to fall back to hardware AGC (`--gain auto`). |
-| `READSB_AUTOGAIN_INTERVAL` | `3600` | Check interval in seconds. Default is 1 hour. Lower values (e.g. `1800` = 30 min) converge faster but need sufficient message volume. |
-| `READSB_AUTOGAIN_LOW` | `0.5` | Low threshold (%). Below this, gain is increased. Raise if you want fewer weak signals. |
-| `READSB_AUTOGAIN_HIGH` | `7.0` | High threshold (%). Above this, gain is decreased. Lower if you're in a high-RF area. |
-| `READSB_AUTOGAIN_STALL_CYCLES` | `3` | Consecutive low-message cycles (< 1000 msgs) before resetting to `--gain auto`. Prevents deadlocks where a stuck gain produces too few messages to self-correct. Default `3` (3 hours). Set to `0` to disable. |
-
-### Monitoring Autogain
-
-```bash
-# View current gain value
-docker exec readsb cat /config/autogain-gain
-
-# Watch autogain decisions in logs
-docker logs readsb 2>&1 | grep 'svc-autogain\['
-
-# Check autogain service status
-docker exec readsb s6-svstat /run/service/svc-autogain
-```
-
-Example log output:
+The algorithm's thresholds can be tuned via `READSB_EXTRA_ARGS` (but there should be no need to change them):
 
 ```
-svc-autogain[info]: Autogain active — interval=3600s, low=0.5%, high=7.0%
-svc-autogain[info]: Current gain: 49.6
-svc-autogain[info]: Decreasing gain: 49.6 → 48.0 (8.234% strong signals)
-svc-autogain[info]: Restarting readsb to apply gain 48.0...
-svc-autogain[info]: Gain 44.5 OK — 3.142% strong signals in range [0.5%, 7.0%]
-
-# Stall recovery (if gain gets stuck with too few messages):
-svc-autogain[info]: Not enough new messages (4/1000). Skipping adjustment. (stall 1/3)
-svc-autogain[info]: Not enough new messages (3/1000). Skipping adjustment. (stall 2/3)
-svc-autogain[info]: Not enough new messages (6/1000). Skipping adjustment. (stall 3/3)
-svc-autogain[warn]: Autogain stalled for 3 consecutive cycles — resetting gain to auto.
-svc-autogain[info]: Restarting readsb with --gain auto to bootstrap fresh data...
+--gain auto-verbose,<lowestGain>,<noiseLowThreshold>,<noiseHighThreshold>,<loudThreshold>
 ```
 
-### Autogain vs `--gain auto` vs Manual Gain
+Defaults: `--gain auto-verbose,0,34,36,243` (thresholds are 0–256 scale)
 
-| Method | How it works | Recommended? |
-|---|---|---|
-| **Autogain** (default) | Analyzes real reception data, steps through gain table, settles on optimal fixed value | Yes — best range and signal quality |
-| `--gain auto` | Hardware AGC in the RTL-SDR chip — reacts in real-time but often picks suboptimal levels | Fallback only |
-| `--gain <value>` | You pick a fixed gain value — works if you know your RF environment | For experts who have tested with `rtl_test` |
+### Recommended Configuration
 
-### Disabling Autogain
+**For most users (default — no changes needed):**
 
 ```yaml
 environment:
-  - READSB_AUTOGAIN=false          # use hardware AGC (--gain auto)
-  # OR specify a fixed gain directly:
-  - READSB_ARGS=--net --device-type rtlsdr --gain 38.6
+  - READSB_DEVICE_TYPE=rtlsdr
+  # READSB_AUTOGAIN defaults to true — autogain is active
 ```
 
-If `--gain` is specified in `READSB_ARGS`, it takes priority over both autogain and hardware AGC.
+**To see autogain decisions in the log:**
 
-### Stall Recovery
+```yaml
+environment:
+  - READSB_EXTRA_ARGS=--gain auto-verbose
+```
 
-If the persisted gain value becomes suboptimal (e.g. after a kernel module loads or RF conditions change dramatically), the receiver may get so few messages that autogain can never accumulate the 1,000 messages needed to re-evaluate — a deadlock. The stall recovery mechanism breaks this cycle automatically:
+**To set a specific fixed gain:**
 
-1. Each hour, if fewer than 1,000 new messages were received, a stall counter increments
-2. After **3 consecutive stalls** (configurable via `READSB_AUTOGAIN_STALL_CYCLES`), gain is reset to `auto` (hardware AGC)
-3. Hardware AGC bootstraps enough messages for autogain to re-enter the gain table and optimize
-4. The stall counter resets on container restart or when messages flow normally
+```yaml
+environment:
+  - READSB_GAIN=40.2
+```
 
-To disable stall recovery: `READSB_AUTOGAIN_STALL_CYCLES=0`
+**To disable autogain (max gain — not recommended):**
 
-### Tips for Faster Convergence
+```yaml
+environment:
+  - READSB_AUTOGAIN=false
+```
 
-- **First run**: Autogain starts at 49.6 and may need several hours to settle. In busy airspace it converges within 2-4 cycles.
-- **Low traffic areas**: If you see "Not enough new messages" in the logs, reduce the interval: `READSB_AUTOGAIN_INTERVAL=1800`
-- **High RF interference**: If gain keeps oscillating between two values, tighten the thresholds: `READSB_AUTOGAIN_LOW=1.0` and `READSB_AUTOGAIN_HIGH=5.0`
-- **After moving antenna**: Delete `/config/autogain-gain` and restart the container to re-optimize from scratch.
+### Choosing a Fixed Gain Value
+
+If you prefer manual control, use the strong signal percentage as your guide. You can check this inside the container:
+
+```bash
+docker exec readsb sh -c 'jq ".total.local | {accepted: (.accepted | add), strong: .strong_signals, signal: .signal, noise: .noise}" /run/readsb/stats.json'
+```
+
+**Target: ~5% strong signals** (messages with RSSI > −3 dBFS). Guidelines from the [upstream adsb-wiki](https://github.com/wiedehopf/adsb-wiki/wiki/Optimizing-gain):
+
+| Strong signal % | Meaning | Action |
+|---|---|---|
+| **> 10%** | ADC is overloading — you're clipping strong signals and losing distant ones too | Decrease gain |
+| **5–10%** | Slightly high but acceptable, especially near airports | May be optimal for your location |
+| **1–5%** | Sweet spot — good balance of range and close-in reception | Ideal for most locations |
+| **< 1%** | Gain may be too low — you could be missing weak distant signals | Increase gain (or this is normal for rural areas with an LNA) |
+| **< 0.1%** | Very low — likely too conservative unless you have an external LNA | Increase gain |
+
+**Another approach:** Aim for the weakest received signal (visible in graphs1090 or tar1090 stats) to be between **−30 and −34 dBFS**. This ensures you're using the full dynamic range without clipping.
+
+### RTL-SDR Gain Table
+
+The R820T/R820T2 tuner supports these discrete gain values (in dB):
+
+```
+ 0.0   0.9   1.4   2.7   3.7   7.7   8.7  12.5  14.4  15.7
+16.6  19.7  20.7  22.9  25.4  28.0  29.7  32.8  33.8  36.4
+37.2  38.6  40.2  42.1  43.4  43.9  44.5  48.0  49.6
+```
+
+Most receivers settle between **25–44 dB** depending on antenna, LNA, cable loss, and local RF environment. Common sweet spots:
+
+| Setup | Typical optimal gain |
+|---|---|
+| Bare RTL-SDR + short coax + outdoor antenna | 38–49.6 |
+| RTL-SDR + LNA (e.g. SAWbird+) + outdoor antenna | 25–38 |
+| RTL-SDR + LNA + long coax run (> 10m) | 33–44 |
+| Indoor antenna / window mount | 42–49.6 |
+| Near a major airport (< 10 km) | 20–33 |
+
+### Tips
+
+- **Start with autogain** — it handles 95% of setups correctly with zero configuration
+- **Wait at least 5 minutes** before evaluating gain performance — stats need time to accumulate
+- **After moving your antenna**, let autogain re-converge (it will adjust automatically)
+- **USB power matters more than gain** — voltage drop from long USB cables or shared hubs causes more reception problems than suboptimal gain. See [USB topology warnings](#troubleshooting)
+- **An external LNA changes everything** — if you add a SAWbird+ or similar, you'll likely need lower gain than before (the LNA adds 15–20 dB of external amplification)
 
 ---
 
@@ -992,31 +990,24 @@ When bias-T is active, you should see a noticeable improvement in aircraft count
 
 ### Gain — When to Intervene Manually
 
-Autogain handles most situations, but you may want to adjust in these cases:
+readsb's built-in autogain handles most situations. See [Gain Control](#gain-control) for a full guide on autogain vs. fixed gain vs. disabled, recommended values by setup type, and how to measure strong signal percentage.
 
-**Gain keeps oscillating:**
-If the same gain value alternates between "too high" and "too low" every cycle, narrow the acceptable band:
-
-```yaml
-environment:
-  - READSB_AUTOGAIN_LOW=1.0    # was 0.5
-  - READSB_AUTOGAIN_HIGH=5.0   # was 7.0
-```
-
-**Want to check your RF environment:**
-Run `rtl_test` inside the container to see the signal baseline:
+**Quick diagnostics:**
 
 ```bash
-docker exec readsb rtl_test -t                    # basic dongle test
-docker exec readsb rtl_test -s 2400000 -t         # test at 2.4 MSPS
+# Check your strong signal percentage and noise floor
+docker exec readsb sh -c 'jq ".total.local | {accepted: (.accepted | add), strong: .strong_signals, signal: .signal, noise: .noise}" /run/readsb/stats.json'
+
+# Test the dongle hardware
+docker exec readsb rtl_test -t
+docker exec readsb rtl_test -s 2400000 -t
 ```
 
 **Force a specific gain for testing:**
 
 ```yaml
 environment:
-  - READSB_AUTOGAIN=false
-  - READSB_ARGS=--net --device-type rtlsdr --gain 38.6
+  - READSB_GAIN=38.6
 ```
 
 ### Frequency Correction (PPM)
@@ -1031,17 +1022,18 @@ docker exec readsb rtl_test -p
 Apply correction:
 ```yaml
 environment:
-  - READSB_ARGS=--net --device-type rtlsdr --ppm 3
+  - READSB_EXTRA_ARGS=--ppm 3
+  - READSB_DEVICE_TYPE=rtlsdr
 ```
 
 ### Network Tuning
 
-These defaults are applied automatically when feed profiles are active, but can be overridden in `READSB_ARGS`:
+These defaults are applied automatically when feed profiles are active, but can be overridden in `READSB_EXTRA_ARGS`:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `--net-bi-port` | (none) | Beast protocol input port(s). Set via `READSB_NET_BI_PORT` env var or `--net-bi-port` in `READSB_ARGS`. |
-| `--net-bo-port` | (none) | Beast protocol output port(s). Set via `READSB_NET_BO_PORT` env var or `--net-bo-port` in `READSB_ARGS`. |
+| `--net-bi-port` | (none) | Beast protocol input port(s). Set via `READSB_NET_BI_PORT` env var or `--net-bi-port` in `READSB_EXTRA_ARGS`. |
+| `--net-bo-port` | (none) | Beast protocol output port(s). Set via `READSB_NET_BO_PORT` env var or `--net-bo-port` in `READSB_EXTRA_ARGS`. |
 | `--net-beast-reduce-interval` | `0.5` | Seconds between reduced beast output updates. Lower = more data, more bandwidth. |
 | `--net-heartbeat` | `60` | Seconds between TCP keepalive heartbeats. |
 | `--net-ro-size` | `1280` | Raw output buffer size in bytes. |
@@ -1077,7 +1069,8 @@ If CPU or disk I/O is a concern (e.g., on a Raspberry Pi Zero):
 
 ```yaml
 environment:
-  - READSB_ARGS=--net --device-type rtlsdr --write-json-every 5
+  - READSB_EXTRA_ARGS=--write-json-every 5
+  - READSB_DEVICE_TYPE=rtlsdr
 ```
 
 This reduces JSON writes from every second to every 5 seconds.
@@ -1103,7 +1096,7 @@ All log output uses syslog format so you can identify the source and severity of
 2026-04-02T11:38:20Z init-readsb-config[info]: fixed USB permissions: /dev/bus/usb/001/004
 2026-04-02T11:38:20Z init-readsb-config[info]: receiver location: 51.5074, -0.1278
 2026-04-02T11:38:21Z svc-readsb[info]: readsb container startup configuration
-2026-04-02T11:38:21Z svc-readsb[info]: Using autogain-managed gain: 44.5
+2026-04-02T11:38:21Z svc-readsb[info]: Using readsb built-in autogain (--gain auto)
 2026-04-02T11:38:21Z svc-readsb[decoder]: *8daa4b32584385ef2a7603346e29;
 2026-04-02T11:38:21Z svc-readsb[decoder]: hex:  aa4b32   CRC: 000000 fixed bits: 0 decode: ok
 2026-04-02T11:38:21Z svc-readsb[decoder]: RSSI:    -22.0 dBFS   reduce_forward: 1
@@ -1111,7 +1104,6 @@ All log output uses syslog format so you can identify the source and severity of
 2026-04-02T11:38:22Z svc-feed-stats[info]: ADSBx stats URL: https://www.adsbexchange.com/api/feeders/?feed=a1b2c3d4-e5f6-7890-abcd-ef1234567890
 2026-04-02T11:38:22Z svc-feed-stats[info]: Starting stats service (upload=5s, console=120s, JSON_DIR=/run/readsb)
 2026-04-02T11:40:22Z svc-feed-stats[info]: stats: 42 aircraft tracked (38 with position), 128456 messages total
-2026-04-02T12:38:22Z svc-autogain[info]: Gain 44.5 OK — 3.142% strong signals in range [0.5%, 7.0%]
 2026-04-02T11:38:52Z svc-feed-stats[warn]: /run/readsb/aircraft.json not updated in 45s.
 ```
 
@@ -1120,7 +1112,6 @@ All log output uses syslog format so you can identify the source and severity of
 | `init-readsb-config` | One-shot init: per-profile UUID generation and persistence (disk + s6 env), feed profile setup, ADSBx stats URL, USB permissions, geolocation |
 | `svc-readsb` | Main readsb decoder service (startup config + decoder output) |
 | `svc-feed-stats` | Periodic console stats (every 2 min by default) + ADSBx RSSI/stats upload when `adsbexchange` profile is active. Both use the same UUID. Per-upload confirmations are `debug`-level. |
-| `svc-autogain` | Automatic gain optimization — adjusts RTL-SDR gain hourly based on strong signal analysis |
 
 | Priority | Meaning |
 |---|---|
@@ -1172,7 +1163,7 @@ docker logs readsb --tail 50 -f  # Follow last 50 lines
 
 - USB device not found: Verify RTL-SDR dongle is connected and restart container
 - Permission denied on `/dev/bus/usb`: Container may need elevated privileges or device permissions
-- Configuration error: Check `READSB_ARGS` syntax against [Customizing READSB_ARGS](#customizing-readsb_args)
+- Configuration error: Check `READSB_EXTRA_ARGS` syntax against [Extra Arguments](#extra-arguments-readsb_extra_args)
 
 ### ADSBx — linking your account
 
@@ -1201,9 +1192,8 @@ docker exec readsb cat /run/readsb/aircraft.json | jq '.aircraft | length'
 
 - Check RTL-SDR device: `docker exec readsb rtl_test -t`
 - Verify antenna is connected and positioned properly
-- Check current autogain value: `docker exec readsb cat /config/autogain-gain`
-- If autogain hasn't settled yet, try a manual gain: add `--gain 35` to `READSB_ARGS` and set `READSB_AUTOGAIN=false`
 - If using a powered antenna, ensure `READSB_BIASTEE=true` is set
+- Try a manual gain: set `READSB_GAIN=35` or use `--gain auto-verbose` in `READSB_EXTRA_ARGS` to watch gain decisions
 - Look for RF interference: try a different location or antenna orientation
 
 ### JSON output not updating
@@ -1303,7 +1293,6 @@ All long-running services are supervised by s6-overlay and automatically restart
 # Check individual service status (equivalent of systemctl status)
 docker exec readsb s6-svstat /run/service/svc-readsb
 docker exec readsb s6-svstat /run/service/svc-feed-stats
-docker exec readsb s6-svstat /run/service/svc-autogain
 ```
 
 ### Periodic Console Stats
@@ -1325,9 +1314,6 @@ docker inspect --format='{{.State.Health.Status}}' readsb
 # Aircraft count
 docker exec readsb cat /run/readsb/aircraft.json | jq '.aircraft | length'
 
-# Current autogain value
-docker exec readsb cat /config/autogain-gain
-
 # Feed UUID (per-profile)
 docker exec readsb cat /config/feed-uuid-adsbexchange
 
@@ -1337,7 +1323,6 @@ docker exec readsb ls /config/feed-uuid-*
 # Service uptime (all services)
 docker exec readsb s6-svstat /run/service/svc-readsb
 docker exec readsb s6-svstat /run/service/svc-feed-stats
-docker exec readsb s6-svstat /run/service/svc-autogain
 
 # RTL-SDR dongle test
 docker exec readsb rtl_test -t

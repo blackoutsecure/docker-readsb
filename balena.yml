@@ -1,10 +1,10 @@
 name: readsb
 description: >-
   LinuxServer.io style containerized build of readsb, a high-performance ADS-B
-  decoder with RTL-SDR support. Features automatic gain optimization, optional
-  bias-T power control, and built-in feed profiles. Outputs JSON and network
-  feeds in a hardened LinuxServer.io-based environment for reliable aircraft
-  signal decoding.
+  decoder with RTL-SDR support. Features built-in automatic gain optimization,
+  optional bias-T power control, and built-in feed profiles. Outputs JSON and
+  network feeds in a hardened LinuxServer.io-based environment for reliable
+  aircraft signal decoding.
 
 post-provisioning: >-
   ## Usage instructions
@@ -17,7 +17,8 @@ post-provisioning: >-
       restart: unless-stopped
       environment:
         - TZ=Etc/UTC
-        - READSB_ARGS=--net --device-type rtlsdr
+        - READSB_NET=true
+        - READSB_DEVICE_TYPE=rtlsdr
         - READSB_AUTO_LOCATION=true
         - READSB_AUTOGAIN=true
         - READSB_BIASTEE=false

@@ -51,24 +51,24 @@ if ! mkdir -p "${readsb_run_dir}"; then
     exit 1
 fi
 
-readsb_args_source="default"
-if [[ -n ${READSB_ARGS:-} ]]; then
-    readsb_args_source="env"
-    read -r -a readsb_args <<< "${READSB_ARGS}"
-else
-    readsb_args=(
-        --net
-        --write-json "${readsb_run_dir}"
-        --write-json-every 1
-        --db-file "${tar1090_db_path}"
-    )
+readsb_args=(
+    --write-json "${readsb_run_dir}"
+    --write-json-every 1
+    --db-file "${tar1090_db_path}"
+)
+
+# Extra user-supplied arguments (appended after all env-var-driven options).
+_extra_args=()
+if [[ -n "${READSB_EXTRA_ARGS:-}" ]]; then
+    read -r -a _extra_args <<< "${READSB_EXTRA_ARGS}"
 fi
 
 has_readsb_opt() {
     local opt=$1
     local token
 
-    for token in "${readsb_args[@]}"; do
+    # Check both the base args and any user-supplied extra args
+    for token in "${readsb_args[@]}" "${_extra_args[@]}"; do
         if [[ ${token} == "${opt}" || ${token} == "${opt}="* ]]; then
             return 0
         fi
@@ -77,13 +77,30 @@ has_readsb_opt() {
     return 1
 }
 
-# Keep key file-output defaults even when READSB_ARGS is user-specified.
+# Keep key file-output defaults.
 if ! has_readsb_opt "--write-json"; then
     readsb_args+=(--write-json "${readsb_run_dir}")
 fi
 
 if ! has_readsb_opt "--db-file"; then
     readsb_args+=(--db-file "${tar1090_db_path}")
+fi
+
+# ── Networking (READSB_NET) ───────────────────────────────────────────────────
+# Enable TCP networking (Beast, raw, SBS protocol listeners).
+# Default: true.  Set READSB_NET=false to run in decode-only mode with no
+# network listeners.  Required for feed profiles, stats upload, and most
+# container use cases.
+if [[ "${READSB_NET:-true}" =~ ^(true|yes|1)$ ]] && ! has_readsb_opt "--net"; then
+    readsb_args+=(--net)
+fi
+
+# ── Device type (READSB_DEVICE_TYPE) ──────────────────────────────────────────
+# Apply --device-type from the env var if not already present.
+# When READSB_DEVICE_TYPE is unset or empty, no --device-type is added
+# (network-only mode or user manages it via READSB_EXTRA_ARGS).
+if [[ -n "${READSB_DEVICE_TYPE:-}" ]] && ! has_readsb_opt "--device-type"; then
+    readsb_args+=(--device-type "${READSB_DEVICE_TYPE}")
 fi
 
 # Resolve the value of --device-type from the effective args.
@@ -102,48 +119,22 @@ for _dt_tok in "${readsb_args[@]}"; do
 done
 unset _dt_prev _dt_tok
 
-# If device type is rtlsdr and no --gain was provided, apply gain source:
-# 1. DVB contamination detected → force --gain auto (see below)
-# 2. READSB_AUTOGAIN=true → read managed gain from /config/autogain-gain
-# 3. Otherwise → default to --gain auto (hardware AGC)
+# If device type is rtlsdr and no --gain was provided, apply gain:
+# 1. READSB_GAIN env var → explicit fixed gain (e.g. READSB_GAIN=40.2)
+# 2. READSB_AUTOGAIN=true (default) → --gain auto (readsb built-in autogain)
+# 3. READSB_AUTOGAIN=false → no --gain flag (readsb defaults to max gain)
 #
-# DVB contamination safety: when the DVB kernel module has claimed the RTL2832U,
-# the R820T tuner registers are left in DVB-T mode.  librtlsdr's manual-gain
-# path (rtlsdr_set_tuner_gain_mode=1) does NOT fully re-initialise the tuner
-# from this state — the result is a valid connection but near-zero reception.
-# The AGC path (--gain auto, mode=0) takes a different code path that properly
-# resets the R820T.  We detect DVB contamination and force --gain auto; the
-# autogain service will measure and apply the optimal gain within one cycle.
+# readsb's built-in --gain auto operates at the IQ sample level (~0.5s cycles),
+# adjusting gain in-process without restarts.  See upstream README § Autogain.
 if [[ ${_dt_val} == "rtlsdr" ]] && ! has_readsb_opt "--gain"; then
-    _autogain_file="/config/autogain-gain"
-
-    # Detect DVB module contamination before gain resolution
-    _dvb_contaminated=false
-    for _dvb_mod_name in dvb_usb_rtl28xxu dvb_usb_v2; do
-        if [[ -d /sys/module/${_dvb_mod_name} ]]; then
-            _dvb_contaminated=true
-            break
-        fi
-    done
-
-    if [[ "${_dvb_contaminated}" == "true" ]]; then
-        # DVB module is loaded — the R820T tuner registers are in DVB-T state.
-        # Force --gain auto so librtlsdr's AGC path properly re-initialises the
-        # tuner.  Autogain will restore the optimal value within one interval.
+    if [[ -n "${READSB_GAIN:-}" ]]; then
+        readsb_args+=(--gain "${READSB_GAIN}")
+        log_info "Using manually configured gain: ${READSB_GAIN}"
+    elif [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]]; then
         readsb_args+=(--gain auto)
-        _ag_val=$(tr -d '[:space:]' < "${_autogain_file}" 2>/dev/null || true)
-        log_warn "DVB module detected — using --gain auto instead of persisted gain (${_ag_val:-none}) for clean tuner init"
-    elif [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]] && [[ -f "${_autogain_file}" ]]; then
-        _ag_val=$(tr -d '[:space:]' < "${_autogain_file}")
-        if [[ -n "${_ag_val}" ]]; then
-            readsb_args+=(--gain "${_ag_val}")
-            log_info "Using autogain-managed gain: ${_ag_val}"
-        else
-            readsb_args+=(--gain auto)
-            log_warn "Autogain file empty, falling back to --gain auto"
-        fi
+        log_info "Using readsb built-in autogain (--gain auto)"
     else
-        readsb_args+=(--gain auto)
+        log_info "Autogain disabled (READSB_AUTOGAIN=${READSB_AUTOGAIN:-true}). No --gain flag set — readsb will use max gain."
     fi
 fi
 
@@ -361,7 +352,7 @@ if [[ ${#FEED_PROFILE_LIST[@]} -gt 0 ]]; then
         readsb_args+=(--write-json-every 1)
     fi
 
-    # Lat/lon from FEED_LAT/FEED_LON (fallback if not already in READSB_ARGS)
+    # Lat/lon from FEED_LAT/FEED_LON (fallback if not already set)
     if [[ -n "${FEED_LAT:-}" ]] && ! has_readsb_opt "--lat"; then
         readsb_args+=(--lat "${FEED_LAT}")
     fi
@@ -380,6 +371,11 @@ fi
 # ── Beast-output port (READSB_NET_BO_PORT) ────────────────────────────────────
 if [[ -n "${READSB_NET_BO_PORT:-}" ]] && ! has_readsb_opt "--net-bo-port"; then
     readsb_args+=(--net-bo-port "${READSB_NET_BO_PORT}")
+fi
+
+# ── Append user-supplied extra arguments last ─────────────────────────────────
+if [[ ${#_extra_args[@]} -gt 0 ]]; then
+    readsb_args+=("${_extra_args[@]}")
 fi
 
 readsb_args_rendered=$(printf '%q ' "${readsb_args[@]}")
@@ -404,8 +400,7 @@ else
     log_kv "UMASK" "${UMASK:-unset}"
     log_kv "TZ" "${TZ:-unset}"
     log_kv "READSB_USER" "${readsb_user}"
-    log_kv "READSB_ARGS(raw)" "${READSB_ARGS:-unset}"
-    log_kv "READSB_ARGS(src)" "${readsb_args_source}"
+    log_kv "EXTRA_ARGS" "${READSB_EXTRA_ARGS:-none}"
     log_kv "READSB_RUN_DIR" "${readsb_run_dir}"
     log_kv "TAR1090_DB_PATH" "${tar1090_db_path}"
     log_kv "LSIO_NON_ROOT_USER" "${LSIO_NON_ROOT_USER:-unset}"
@@ -415,13 +410,10 @@ else
     log_kv "FEED_LON" "${FEED_LON:-unset}"
     log_kv "AUTO_LOCATION" "${READSB_AUTO_LOCATION:-true}"
     log_kv "PUBLIC_IP" "${PUBLIC_IP:-unknown}"
+    log_kv "NET" "${READSB_NET:-true}"
+    log_kv "DEVICE_TYPE" "${READSB_DEVICE_TYPE:-unset (network-only)}"
     log_kv "AUTOGAIN" "${READSB_AUTOGAIN:-true}"
-    if [[ "${READSB_AUTOGAIN:-true}" =~ ^(true|yes|1)$ ]]; then
-        log_kv "AUTOGAIN_INTERVAL" "${READSB_AUTOGAIN_INTERVAL:-3600}s"
-        log_kv "AUTOGAIN_LOW" "${READSB_AUTOGAIN_LOW:-0.5}%"
-        log_kv "AUTOGAIN_HIGH" "${READSB_AUTOGAIN_HIGH:-7.0}%"
-        log_kv "AUTOGAIN_STALL_CYCLES" "${READSB_AUTOGAIN_STALL_CYCLES:-3}"
-    fi
+    log_kv "GAIN" "${READSB_GAIN:-auto (readsb built-in)}"
     log_kv "BIASTEE" "${READSB_BIASTEE:-false}"
     log_kv "NET_BI_PORT" "${READSB_NET_BI_PORT:-unset}"
     log_kv "NET_BO_PORT" "${READSB_NET_BO_PORT:-unset}"
@@ -649,7 +641,7 @@ LOG_PIPE=$(log_pipe_cmd decoder)
 
 # Pre-increment the fail counter BEFORE exec.  exec replaces this process so
 # EXIT traps never fire — we must assume failure upfront.  On successful
-# startup (30+ seconds of runtime), svc-feed-stats or svc-autogain resets it.
+# startup (30+ seconds of runtime), svc-feed-stats resets it.
 echo "$(( _fail_count + 1 ))" > "${_fail_count_file}"
 
 if [[ -z ${LSIO_NON_ROOT_USER:-} ]]; then
