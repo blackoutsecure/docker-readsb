@@ -209,13 +209,13 @@ while true; do
                 log_warn "  3. Check antenna cable connections (loose SMA, damaged coax, water ingress)"
                 log_warn "  4. Verify the 1090 MHz antenna is on the correct RTL-SDR dongle"
                 if [[ -d /sys/module/dvb_usb_rtl28xxu ]]; then
-                    log_warn "  4. DVB KERNEL MODULE IS LOADED — it may be stealing the dongle."
+                    log_warn "  5. DVB KERNEL MODULE IS LOADED — it may be stealing the dongle."
                     log_warn "     Blacklist on host: echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtlsdr.conf"
                 else
-                    log_warn "  4. DVB kernel module is not loaded (OK)"
+                    log_warn "  5. DVB kernel module is not loaded (OK)"
                 fi
-                log_warn "  5. Try a different USB port or shorter USB cable"
-                log_warn "  6. Run rtl_test -d 1090 on the host to verify the dongle works"
+                log_warn "  6. Try a different USB port or shorter USB cable"
+                log_warn "  7. Run rtl_test -d 1090 on the host to verify the dongle works"
                 log_warn "──────────────────────────────────────────────────────────────────"
                 _low_rx_warned=true
             fi

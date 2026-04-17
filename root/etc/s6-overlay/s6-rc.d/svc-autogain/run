@@ -16,8 +16,11 @@ if [[ "${autogain_enabled,,}" != "true" ]]; then
 fi
 
 # ── Configuration ─────────────────────────────────────────────────────────────
-# Gain step table — matches wiedehopf/adsb-scripts autogain1090 exactly
-GAIN_TABLE=(0.0 0.9 1.4 2.7 3.7 7.7 8.7 12.5 14.4 15.7 16.6 19.7 20.7 22.9 25.4 28.0 29.7 32.8 33.8 36.4 37.2 38.6 40.2 42.1 43.4 43.9 44.5 48.0 49.6 -10)
+# Gain step table — based on wiedehopf/adsb-scripts autogain1090.
+# NOTE: upstream includes -10 (R820T hardware AGC) as the top entry, but
+# hardware AGC does NOT work reliably for ADS-B reception — it often results
+# in zero messages.  We cap at 49.6 (the highest manual gain setting).
+GAIN_TABLE=(0.0 0.9 1.4 2.7 3.7 7.7 8.7 12.5 14.4 15.7 16.6 19.7 20.7 22.9 25.4 28.0 29.7 32.8 33.8 36.4 37.2 38.6 40.2 42.1 43.4 43.9 44.5 48.0 49.6)
 GAIN_MAX_INDEX=$(( ${#GAIN_TABLE[@]} - 1 ))
 
 # Thresholds: percentage of messages with RSSI > -3dB
@@ -63,10 +66,7 @@ float_gt() { awk "BEGIN{ exit !($1 > $2) }"; }
 gain_to_index() {
     local val="$1"
     local i
-    if [[ "${val}" == "-10" ]]; then
-        echo "${GAIN_MAX_INDEX}"
-        return
-    fi
+
     for i in "${!GAIN_TABLE[@]}"; do
         if ! float_gt "${val}" "${GAIN_TABLE[$i]}"; then
             echo "${i}"
@@ -80,6 +80,13 @@ gain_to_index() {
 # If no persisted gain, start at index 28 (49.6) — same as upstream default.
 if [[ -f "${GAIN_FILE}" ]]; then
     current_gain=$(tr -d '[:space:]' < "${GAIN_FILE}")
+    # Migration: -10 (hardware AGC) no longer in the gain table — replace with
+    # 49.6 (highest manual gain).  Hardware AGC is unreliable for ADS-B.
+    if [[ "${current_gain}" == "-10" ]]; then
+        log_warn "Persisted gain was -10 (hardware AGC) — migrating to 49.6 (highest manual gain)."
+        current_gain="49.6"
+        echo "${current_gain}" > "${GAIN_FILE}"
+    fi
     log_info "Loaded persisted gain: ${current_gain}"
 else
     current_gain="49.6"
@@ -195,10 +202,21 @@ while true; do
     fi
 
     # Find current gain index
-    # After an auto-reset, re-enter the table at 49.6 (index 28)
+    # After an auto-reset, re-enter the table at 49.6 (index 28).
+    # The data collected this cycle was gathered at --gain auto, not at 49.6,
+    # so we must NOT evaluate it.  Restart readsb at 49.6, reset counters,
+    # and let the next cycle collect fresh data at the new gain.
     if [[ "${current_gain}" == "auto" ]]; then
         current_gain="49.6"
+        echo "${current_gain}" > "${GAIN_FILE}"
         log_info "Transitioning from auto back to table gain: ${current_gain}"
+        echo "0" > "${STATE_DIR}/strong"
+        echo "0" > "${STATE_DIR}/total"
+        if [[ -d /run/service/svc-readsb ]]; then
+            log_info "Restarting readsb to apply gain ${current_gain}..."
+            s6-svc -r /run/service/svc-readsb
+        fi
+        continue
     fi
     gain_index=$(gain_to_index "${current_gain}")
 
@@ -217,7 +235,7 @@ while true; do
     if [[ "${in_low}" == "true" ]]; then
         # Too few strong signals → increase gain
         if [[ ${gain_index} -ge ${GAIN_MAX_INDEX} ]]; then
-            log_info "Gain already at maximum (-10). ${percent}% strong signals."
+            log_info "Gain already at maximum (${GAIN_TABLE[${GAIN_MAX_INDEX}]}). ${percent}% strong signals."
             continue
         fi
         new_index=$((gain_index + 1))
