@@ -118,16 +118,23 @@ jobs:
           echo "upstream_commit=${UPSTREAM_COMMIT}" >> "$GITHUB_OUTPUT"
           echo "upstream_version=${UPSTREAM_VERSION}" >> "$GITHUB_OUTPUT"
 
-  tag-images:
+  build-images:
     needs: release-metadata
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+          - arch: arm64
+            runner: [self-hosted, Linux, ARM64, ubuntu-latest]
+            platform: linux/arm64
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU (for multi-arch builds)
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -155,6 +162,57 @@ jobs:
       - name: Confirm Docker auth
         run: docker info > /dev/null && echo "✓ Docker authentication confirmed"
 
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          no-cache: false
+          pull: true
+          provenance: false
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            READSB_REPO_URL=${{ env.READSB_REPO_URL }}
+            READSB_REPO_BRANCH=${{ env.READSB_REPO_BRANCH }}
+
+      - name: Export digest
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/digests
+          DIGEST="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  tag-images:
+    needs: [release-metadata, build-images]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Download digest artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: release-digests-*
+          merge-multiple: true
+
       - name: Extract Docker metadata
         id: docker-meta
         uses: docker/metadata-action@v6
@@ -167,21 +225,31 @@ jobs:
             type=raw,value=latest
             type=sha,prefix={{branch}}-
 
-      - name: Build and push multi-arch release
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          platforms: linux/amd64,linux/arm64
-          no-cache: false
-          pull: true
-          provenance: false
-          tags: ${{ steps.docker-meta.outputs.tags }}
-          labels: ${{ steps.docker-meta.outputs.labels }}
-          build-args: |
-            READSB_REPO_URL=${{ env.READSB_REPO_URL }}
-            READSB_REPO_BRANCH=${{ env.READSB_REPO_BRANCH }}
+      - name: Create and push multi-arch manifests
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${{ env.IMAGE_NAME }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t DIGESTS < <(find /tmp/digests -type f -printf '%f\n' | sort)
+
+          if [ "${#DIGESTS[@]}" -eq 0 ]; then
+            echo "No digests found to assemble multi-arch manifest"
+            exit 1
+          fi
+
+          SOURCES=()
+          for digest in "${DIGESTS[@]}"; do
+            SOURCES+=("${IMAGE_REF}@sha256:${digest}")
+          done
+
+          TAG_ARGS=()
+          while IFS= read -r tag; do
+            [ -z "${tag}" ] && continue
+            TAG_ARGS+=("--tag" "${tag}")
+          done <<< "${{ steps.docker-meta.outputs.tags }}"
+
+          docker buildx imagetools create "${TAG_ARGS[@]}" "${SOURCES[@]}"
 
   create-github-release:
     needs: [validate-release, release-metadata, tag-images]
