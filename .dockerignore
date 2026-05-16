@@ -7,24 +7,48 @@
 # Environment and secrets
 .env
 .env.*
+.secrets/
+*.pem
+*.key
+*.crt
 
 # Documentation and metadata (not needed in image)
 README.md
+SECURITY.md
 LICENSE
 readme-vars.yml
-balena.yml
 logo.png
 
 # Editor and tooling config
 .editorconfig
+.dockerignore
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# OS junk that might sneak into the build context.
+.DS_Store
+Thumbs.db
+._*
+
+# Python / Node tooling (defensive — never useful inside a Docker image).
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
 
 # Local development
 tmp/
 *.log
 *.tmp
+*.orig
+*.rej
 
-# Ensure root overlay and Dockerfile context are included
+# Ensure root overlay, Dockerfile, and balena.yml context are included.
+# balena.yml is rendered into the repo root by the hub workflow before
+# `balena push` runs; @balena/compose reads it from the build context.
 !root/
 !Dockerfile
+!balena.yml

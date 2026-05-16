@@ -33,6 +33,10 @@ services:
       - '30004:30004'
       - '30005:30005'
       - '30104:30104'
+    # Required to unbind the dvb_usb_rtl28xxu / rtl2832 kernel modules from
+    # the RTL-SDR dongle and to invoke rtl_eeprom / rtl_biast against
+    # /dev/bus/usb. The /dev/bus/usb device-cgroup rule on Balena hosts
+    # only grants character-device access, not the USB-detach ioctl.
     privileged: true
     tmpfs:
       - /tmp

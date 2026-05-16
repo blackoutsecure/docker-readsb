@@ -7,31 +7,19 @@
 [![GitHub Stars](https://img.shields.io/github/stars/blackoutsecure/docker-readsb?style=flat-square&color=E7931D&logo=github)](https://github.com/blackoutsecure/docker-readsb/stargazers)
 [![Docker Pulls](https://img.shields.io/docker/pulls/blackoutsecure/readsb?style=flat-square&color=E7931D&logo=docker&logoColor=FFFFFF)](https://hub.docker.com/r/blackoutsecure/readsb)
 [![GitHub Release](https://img.shields.io/github/release/blackoutsecure/docker-readsb.svg?style=flat-square&color=E7931D&logo=github&logoColor=FFFFFF)](https://github.com/blackoutsecure/docker-readsb/releases)
-[![Release CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/release.yml?style=flat-square&label=release%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/release.yml)
-[![Publish CI](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/publish.yml?style=flat-square&label=publish%20ci&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/publish.yml)
+[![Blackout Secure Launchpad](https://img.shields.io/github/actions/workflow/status/blackoutsecure/docker-readsb/bos-launchpad.yml?style=flat-square&label=blackout%20secure%20launchpad&color=E7931D)](https://github.com/blackoutsecure/docker-readsb/actions/workflows/bos-launchpad.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=flat-square)](https://www.gnu.org/licenses/gpl-3.0)
 
-Unofficial community image for [readsb](https://github.com/wiedehopf/readsb), built with [LinuxServer.io](https://linuxserver.io/) style container patterns (s6, hardened defaults, practical runtime options) for RTL-SDR ADS-B workloads.
-
-Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app).
+Unofficial community image for [readsb](https://github.com/wiedehopf/readsb), built with [LinuxServer.io](https://linuxserver.io/) style container patterns (s6, hardened defaults, practical runtime options) for RTL-SDR ADS-B workloads. Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app).
 
 > [!IMPORTANT]
 > This repository is not an official LinuxServer.io image release.
 > Want to help make it an officially supported LinuxServer.io Community image?
 > Add your support in [linuxserver/discussions/108](https://github.com/orgs/linuxserver/discussions/108).
 
-## Overview
+Links: [Docker Hub](https://hub.docker.com/r/blackoutsecure/readsb) · [Balena block](https://hub.balena.io/blocks/2351129/readsb) · [GitHub](https://github.com/blackoutsecure/docker-readsb) · [Upstream readsb](https://github.com/wiedehopf/readsb)
 
-This project packages upstream [wiedehopf/readsb](https://github.com/wiedehopf/readsb) into an easy-to-run, LinuxServer.io-style container image with practical defaults for ADS-B receivers, JSON/network outputs, and RTL-SDR hardware access.
-
-Quick links:
-
-- Docker Hub listing: [blackoutsecure/readsb](https://hub.docker.com/r/blackoutsecure/readsb)
-- Balena block listing: [readsb block on Balena Hub](https://hub.balena.io/blocks/2351129/readsb)
-- GitHub repository: [blackoutsecure/docker-readsb](https://github.com/blackoutsecure/docker-readsb)
-- Upstream application: [wiedehopf/readsb](https://github.com/wiedehopf/readsb)
-
-[![balena deploy button](https://www.balena.io/deploy.svg)](https://dashboard.balena-cloud.com/deploy?repoUrl=https://github.com/blackoutsecure/docker-readsb&configUrl=https://raw.githubusercontent.com/blackoutsecure/docker-readsb/main/balena.yml)
+[![balena deploy button](https://www.balena.io/deploy.svg)](https://hub.balena.io/blocks/2351129/readsb)
 
 ---
 
@@ -58,8 +46,8 @@ Quick links:
 - [Troubleshooting](#troubleshooting)
 - [Health Monitoring](#health-monitoring)
 - [Release & Versioning](#release--versioning)
-- [Support & Getting Help](#support--getting-help)
-- [References](#references)
+- [Resources](#resources)
+- [License](#license)
 
 ---
 
@@ -1360,63 +1348,18 @@ docker inspect -f '{{ index .Config.Labels "build_version" }}' blackoutsecure/re
 
 ---
 
-## Support & Getting Help
+## Resources
 
-- **❓ Questions:** [GitHub Issues](https://github.com/blackoutsecure/docker-readsb/issues)
-- **🐛 Bug Reports:** Include Docker version, container logs, and reproduction steps
-- **📖 Upstream Documentation:** [readsb on GitHub](https://github.com/wiedehopf/readsb)
-- **💬 Community:** [LinuxServer.io Discord](https://linuxserver.io/discord)
-
-**Get help:**
-
-```bash
-docker logs readsb                          # View container logs
-docker exec -it readsb /bin/bash           # Access container shell
-docker inspect blackoutsecure/readsb       # Check image details
-```
-
----
-
-## Sponsor & Credits
-
-Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app)
-
-Upstream project: [wiedehopf/readsb](https://github.com/wiedehopf/readsb)  
-Container patterns: [LinuxServer.io](https://linuxserver.io/)
-
----
-
-## References
-
-### Project Resources
-
-| Resource | Link |
-| --- | --- |
-| **Docker Hub** | [blackoutsecure/readsb](https://hub.docker.com/r/blackoutsecure/readsb) |
-| **GitHub Issues** | [Report bugs or request features](https://github.com/blackoutsecure/docker-readsb/issues) |
-| **GitHub Releases** | [Download releases](https://github.com/blackoutsecure/docker-readsb/releases) |
-
-### Upstream & Related
-
-| Project | Link |
-| --- | --- |
-| **readsb** | [wiedehopf/readsb](https://github.com/wiedehopf/readsb) |
-| **LinuxServer.io** | [linuxserver.io](https://linuxserver.io/) |
-
-### Technical Resources
-
-- [ADS-B Overview](https://en.wikipedia.org/wiki/Automatic_Dependent_Surveillance%E2%80%93Broadcast)
-- [Docker Documentation](https://docs.docker.com/)
-- [RTL-SDR Dongles](https://www.rtl-sdr.com/)
+- **Docker Hub:** [blackoutsecure/readsb](https://hub.docker.com/r/blackoutsecure/readsb)
+- **Issues / bug reports:** [GitHub Issues](https://github.com/blackoutsecure/docker-readsb/issues) — include Docker version, container logs, and reproduction steps.
+- **Releases:** [GitHub Releases](https://github.com/blackoutsecure/docker-readsb/releases)
+- **Upstream:** [wiedehopf/readsb](https://github.com/wiedehopf/readsb)
+- **Container base:** [LinuxServer.io](https://linuxserver.io/) · [Discord](https://linuxserver.io/discord)
 
 ---
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 or later - see the LICENSE file for details.
+GPL-3.0-or-later — see [LICENSE](LICENSE). The upstream readsb project is also GPL-3.0-or-later.
 
-The readsb application itself is also licensed under GPL-3.0-or-later. For more information, see the [readsb repository](https://github.com/wiedehopf/readsb).
-
----
-
-*Made with ❤️ by [Blackout Secure](https://blackoutsecure.app)*
+Sponsored and maintained by [Blackout Secure](https://blackoutsecure.app).

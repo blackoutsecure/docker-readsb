@@ -12,7 +12,6 @@ parse_feed_profiles() {
         return
     fi
     IFS=',' read -ra FEED_PROFILE_LIST <<< "${profiles}"
-    # Trim whitespace and lowercase each entry
     local i
     for i in "${!FEED_PROFILE_LIST[@]}"; do
         FEED_PROFILE_LIST[$i]=$(echo "${FEED_PROFILE_LIST[$i]}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')

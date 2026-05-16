@@ -34,26 +34,21 @@ enumerate_sdr_dongles() {
 
     local manual_device="${READSB_DEVICE:-}"
 
-    # -- Manual assignment (READSB_DEVICE takes priority) --
+    # Manual assignment via READSB_DEVICE wins; readsb accepts index or serial.
     if [[ -n "${manual_device}" ]]; then
         SDR_MODE="manual"
         if [[ "${manual_device}" =~ ^[0-9]+$ ]]; then
             SDR_1090_INDEX="${manual_device}"
         else
-            # Serial number -- readsb accepts serial via --device
             SDR_1090_INDEX="${manual_device}"
             SDR_1090_SERIAL="${manual_device}"
         fi
-
-        # Still count dongles for logging
         if command -v lsusb >/dev/null 2>&1; then
             SDR_DONGLE_COUNT=$(lsusb 2>/dev/null | grep -icE '0bda:(2832|2838)' || echo 0)
         fi
-
         return 0
     fi
 
-    # -- Auto-detection --
     if ! command -v lsusb >/dev/null 2>&1; then
         return 1
     fi
@@ -91,8 +86,9 @@ enumerate_sdr_dongles() {
 
             local serial_lower="${serial,,}"
 
+            # UAT-tagged dongle is logged but never assigned to readsb (readsb
+            # decodes 1090 MHz only). Everything else is a 1090 candidate.
             if [[ "${serial_lower}" == *"978"* || "${serial_lower}" == *"uat"* ]]; then
-                # UAT dongle -- log it but don't assign to readsb
                 SDR_UAT_DETECTED="true"
                 SDR_UAT_SERIAL="${serial}"
             elif [[ -z "${SDR_1090_INDEX}" ]]; then
@@ -103,7 +99,6 @@ enumerate_sdr_dongles() {
             idx=$((idx + 1))
         done
     else
-        # No rtl_test: single dongle -> assume 1090
         if [[ ${SDR_DONGLE_COUNT} -eq 1 ]]; then
             SDR_1090_INDEX=0
         fi

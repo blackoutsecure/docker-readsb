@@ -9,13 +9,21 @@ insert_final_newline = true
 trim_trailing_whitespace = true
 charset = utf-8
 
-[{Dockerfile*,*.yml}]
+[{Dockerfile*,*.yml,*.yaml,*.json}]
 indent_style = space
 indent_size = 2
 
-[{*.sh,root/etc/s6-overlay/s6-rc.d/**/run,root/etc/s6-overlay/s6-rc.d/**/up}]
+[{*.sh,*.bash,root/etc/s6-overlay/s6-rc.d/**/run,root/etc/s6-overlay/s6-rc.d/**/up}]
 indent_style = space
 indent_size = 4
+
+# C source matches the 4-space style used in src/usb-reset.c.
+[*.{c,h}]
+indent_style = space
+indent_size = 4
+
+[Makefile]
+indent_style = tab
 
 [*.md]
 trim_trailing_whitespace = false

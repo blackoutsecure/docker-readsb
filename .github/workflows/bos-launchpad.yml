@@ -1,101 +1,97 @@
-# Single consumer-side workflow for docker-readsb.
+# Single consumer-side workflow for docker-readsb. Pure caller for the hub's
+# `bos-launchpad.yml` (Blackout Secure Launchpad) reusable meta-workflow.
 #
-# Zero local logic — this file is a pure caller for the hub's reusable
-# meta-workflow `release-from-upstream.yml`. The full pipeline lives in
-# `blackoutsecure/bos-automation-hub`:
+#   monitor (github_branch_file mode) → release (docker → balena)
 #
-#   monitor (branch_head mode) → release (docker → balena → github_release)
+# Required vars:    DOCKERHUB_NAMESPACE, BALENA_NAMESPACE
+# Required secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, BALENA_API_TOKEN
 #
-# The `branch_head` source mode (added to the hub monitor in tandem with
-# this file) exists specifically because the upstream `wiedehopf/readsb`
-# does not publish GitHub Releases. Instead the monitor reads the raw
-# `version` file at the HEAD of the tracked branch.
-#
-# Required `vars`: IMAGE_NAME, DOCKERHUB_NAMESPACE, BALENA_BLOCK_NAME, BALENA_NAMESPACE.
-# Required `secrets`: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, BALENA_API_TOKEN.
-name: Release from upstream
+# `balena.yml` is NOT checked in; the hub renders it on each run from the
+# `balena_*` inputs below. See blackoutsecure/bos-automation-hub for the
+# full input reference.
+name: Blackout Secure Launchpad
 
 on:
-  # Stagger 17 minutes past the hour to dodge the on-the-hour cron stampede
-  # that GitHub-hosted runners are known for.
   schedule:
-    - cron: '17 */6 * * *'
+    - cron: '17 */6 * * *'   # stagger off :00 to dodge org cron pile-ups
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Run the pipeline even if upstream is unchanged.'
-        required: false
+        description: Run the pipeline even if upstream is unchanged.
         type: boolean
         default: false
-      run_docker:
-        description: 'Run the docker-build-push stage.'
-        required: false
-        type: boolean
-        default: true
-      run_balena:
-        description: 'Run the balena-block-publish stage.'
-        required: false
-        type: boolean
-        default: true
-      run_github_release:
-        description: 'Run the github-release publish stage.'
-        required: false
-        type: boolean
-        default: true
 
+# No top-level `concurrency:` — the hub workflow owns serialization.
+# Declaring it on both sides triggers a GHA self-deadlock.
 permissions:
   contents: read
-
-# NOTE: no top-level `concurrency:` here. The hub meta-workflow
-# `release-from-upstream.yml` declares its own concurrency group with the
-# expression `release-from-upstream-${{ github.workflow }}-${{ github.ref }}`,
-# which evaluates to the SAME group name in the caller context. Declaring it
-# at both levels triggers a GHA self-deadlock: the parent caller holds the
-# group lock while waiting on the reusable workflow, which then can't acquire
-# the same lock and the run is cancelled with "deadlock was detected for
-# concurrency group". Leave serialization to the hub.
 
 jobs:
   release:
     permissions:
-      contents:        write   # monitor commit + balena.yml commit-back + GitHub Release publish
-      actions:         write   # nested monitor declares `actions: write` for `gh workflow run`;
-                               # caller must grant it even though target_workflows is empty.
-      pull-requests:   write   # nested docker-build-push declares this for Docker Scout PR annotations.
-      security-events: write   # nested docker-build-push declares this for SARIF upload to code scanning.
-    uses: blackoutsecure/bos-automation-hub/.github/workflows/release-from-upstream.yml@main
+      contents:        write   # monitor tracking-file commit
+      actions:         write   # nested monitor (`gh workflow run`)
+      pull-requests:   write   # nested Docker Scout PR annotations
+      security-events: write   # nested Docker Scout SARIF upload
+    uses: blackoutsecure/bos-automation-hub/.github/workflows/bos-launchpad.yml@main
     with:
-      # ----- Monitor stage (branch_head mode) -----
-      upstream_repo:     wiedehopf/readsb
-      source:            branch_head
-      upstream_branch:   dev
-      track_file:        .github/upstream/readsb-dev.json
+      upstream_repo:    wiedehopf/readsb
+      source:           github_branch_file
+      upstream_branch:  dev
+      track_file:       .github/upstream/readsb-dev.json
+      force_release:    ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
 
-      # ----- Run-the-pipeline gate -----
-      # On scheduled cron, the monitor's change-detection decides whether the
-      # release job runs at all. On manual dispatch, `force_release` lets the
-      # operator bypass that gate to (re-)run stages against the
-      # currently-tracked version even when upstream is unchanged.
-      force_release: ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
+      image_name:          readsb
+      dockerhub_namespace: ${{ vars.DOCKERHUB_NAMESPACE }}
+      block_name:          readsb
+      balena_namespace:    ${{ vars.BALENA_NAMESPACE }}
 
-      # ----- Stage toggles -----
-      # Scheduled cron: docker + balena always run; github_release stays OFF
-      # (this repo opts out of automated Release publishing).
-      # Manual dispatch: each stage is independently togglable via the
-      # `run_*` checkboxes shown in the GitHub UI. All three default to true.
-      docker:         ${{ github.event_name != 'workflow_dispatch' || inputs.run_docker }}
-      balena:         ${{ github.event_name != 'workflow_dispatch' || inputs.run_balena }}
-      github_release: ${{ github.event_name == 'workflow_dispatch' && inputs.run_github_release }}
+      # Hub defaults: github_release=true, balena_generate_yml=false.
+      # This repo opts out of automated Releases and uses dynamic balena.yml.
+      github_release:      false
+      balena_generate_yml: true
 
-      # ----- Docker stage -----
-      image_name:               readsb
-      dockerhub_namespace:      ${{ vars.DOCKERHUB_NAMESPACE }}
-      docker_short_description: ${{ github.event.repository.description }}
-      docker_extra_tags:        sha-${{ github.sha }}
+      balena_description: >-
+        LinuxServer.io style containerized build of readsb, a high-performance ADS-B
+        decoder with RTL-SDR support. Features built-in automatic gain optimization,
+        optional bias-T power control, and built-in feed profiles. Outputs JSON and
+        network feeds in a hardened LinuxServer.io-based environment for reliable
+        aircraft signal decoding.
+      balena_post_provisioning: |
+        ## Usage instructions
 
-      # ----- Balena stage -----
-      block_name:        readsb
-      balena_namespace:  ${{ vars.BALENA_NAMESPACE }}
+        Include this snippet in your docker-compose.yml file under 'services':
+
+          ```
+          readsb:
+            image: docker.io/${{ vars.DOCKERHUB_NAMESPACE }}/readsb:latest
+            restart: unless-stopped
+            environment:
+              - TZ=Etc/UTC
+              - READSB_NET=true
+              - READSB_DEVICE_TYPE=rtlsdr
+              - READSB_AUTO_LOCATION=true
+              - READSB_AUTOGAIN=true
+              - READSB_BIASTEE=false
+              - LOG_LEVEL=info
+            ports:
+              - '30001:30001'
+              - '30002:30002'
+              - '30003:30003'
+              - '30004:30004'
+              - '30005:30005'
+              - '30104:30104'
+            volumes:
+              - '/path/to/readsb/config:/config'
+              - '/path/to/readsb/json:/run/readsb'
+            devices:
+              - '/dev/bus/usb:/dev/bus/usb'
+            security_opt:
+              - 'no-new-privileges:true'
+          ```
+
+        Repository: https://github.com/${{ github.repository }}
+        Upstream application: https://github.com/wiedehopf/readsb
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}

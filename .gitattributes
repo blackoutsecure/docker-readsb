@@ -12,6 +12,23 @@ root/etc/s6-overlay/s6-rc.d/*/run text eol=lf
 root/etc/s6-overlay/s6-rc.d/*/type text eol=lf
 root/etc/s6-overlay/s6-rc.d/*/up text eol=lf
 
+# C source (compiled by Dockerfile from src/).
+*.c text eol=lf
+*.h text eol=lf
+
+# Config / data formats.
+*.yaml text eol=lf
+*.conf text eol=lf
+*.txt  text eol=lf
+
 # Binary files
-*.png binary
-*.gz binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.gz   binary
+*.tgz  binary
+*.tar  binary
+*.zip  binary
