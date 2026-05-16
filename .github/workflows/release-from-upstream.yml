@@ -46,11 +46,14 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  # Serialize, never cancel. A half-published multi-arch manifest or a
-  # half-uploaded balenaBlock is worse than waiting out a stuck run.
-  group: release-from-upstream-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+# NOTE: no top-level `concurrency:` here. The hub meta-workflow
+# `release-from-upstream.yml` declares its own concurrency group with the
+# expression `release-from-upstream-${{ github.workflow }}-${{ github.ref }}`,
+# which evaluates to the SAME group name in the caller context. Declaring it
+# at both levels triggers a GHA self-deadlock: the parent caller holds the
+# group lock while waiting on the reusable workflow, which then can't acquire
+# the same lock and the run is cancelled with "deadlock was detected for
+# concurrency group". Leave serialization to the hub.
 
 jobs:
   release:
