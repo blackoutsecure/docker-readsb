@@ -55,9 +55,11 @@ concurrency:
 jobs:
   release:
     permissions:
-      contents: write   # monitor commit + balena.yml commit-back + GitHub Release publish
-      actions:  write   # nested monitor declares `actions: write` for `gh workflow run`;
-                        # caller must grant it even though target_workflows is empty.
+      contents:        write   # monitor commit + balena.yml commit-back + GitHub Release publish
+      actions:         write   # nested monitor declares `actions: write` for `gh workflow run`;
+                               # caller must grant it even though target_workflows is empty.
+      pull-requests:   write   # nested docker-build-push declares this for Docker Scout PR annotations.
+      security-events: write   # nested docker-build-push declares this for SARIF upload to code scanning.
     uses: blackoutsecure/bos-automation-hub/.github/workflows/release-from-upstream.yml@main
     with:
       # ----- Monitor stage (branch_head mode) -----
