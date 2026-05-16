@@ -88,13 +88,13 @@ jobs:
       github_release: ${{ github.event_name == 'workflow_dispatch' && inputs.run_github_release }}
 
       # ----- Docker stage -----
-      image_name:               ${{ vars.IMAGE_NAME }}
+      image_name:               readsb
       dockerhub_namespace:      ${{ vars.DOCKERHUB_NAMESPACE }}
       docker_short_description: ${{ github.event.repository.description }}
       docker_extra_tags:        sha-${{ github.sha }}
 
       # ----- Balena stage -----
-      block_name:        ${{ vars.BALENA_BLOCK_NAME }}
+      block_name:        readsb
       balena_namespace:  ${{ vars.BALENA_NAMESPACE }}
     secrets:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
