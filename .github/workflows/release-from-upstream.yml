@@ -1,0 +1,65 @@
+# Single consumer-side workflow for docker-readsb.
+#
+# Zero local logic — this file is a pure caller for the hub's reusable
+# meta-workflow `release-from-upstream.yml`. The full pipeline lives in
+# `blackoutsecure/bos-automation-hub`:
+#
+#   monitor (branch_head mode) → release (docker → balena → github_release)
+#
+# The `branch_head` source mode (added to the hub monitor in tandem with
+# this file) exists specifically because the upstream `wiedehopf/readsb`
+# does not publish GitHub Releases. Instead the monitor reads the raw
+# `version` file at the HEAD of the tracked branch.
+#
+# Required `vars`: IMAGE_NAME, DOCKERHUB_NAMESPACE, BALENA_BLOCK_NAME, BALENA_NAMESPACE.
+# Required `secrets`: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, BALENA_API_TOKEN.
+name: Release from upstream
+
+on:
+  # Stagger 17 minutes past the hour to dodge the on-the-hour cron stampede
+  # that GitHub-hosted runners are known for.
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Run the release pipeline even if upstream is unchanged.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize, never cancel. A half-published multi-arch manifest or a
+  # half-uploaded balenaBlock is worse than waiting out a stuck run.
+  group: release-from-upstream-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    permissions:
+      contents: write   # monitor commit + balena.yml commit-back + GitHub Release publish
+    uses: blackoutsecure/bos-automation-hub/.github/workflows/release-from-upstream.yml@main
+    with:
+      # ----- Monitor stage (branch_head mode) -----
+      upstream_repo:     wiedehopf/readsb
+      source:            branch_head
+      upstream_branch:   dev
+      track_file:        .github/upstream/readsb-dev.json
+      force_release:     ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
+
+      # ----- Docker stage -----
+      image_name:               ${{ vars.IMAGE_NAME }}
+      dockerhub_namespace:      ${{ vars.DOCKERHUB_NAMESPACE }}
+      docker_short_description: ${{ github.event.repository.description }}
+      docker_extra_tags:        sha-${{ github.sha }}
+
+      # ----- Balena stage -----
+      block_name:        ${{ vars.BALENA_BLOCK_NAME }}
+      balena_namespace:  ${{ vars.BALENA_NAMESPACE }}
+    secrets:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN:    ${{ secrets.DOCKERHUB_TOKEN }}
+      BALENA_API_TOKEN:   ${{ secrets.BALENA_API_TOKEN }}
