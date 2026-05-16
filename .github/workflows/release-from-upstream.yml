@@ -23,10 +23,25 @@ on:
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Run the release pipeline even if upstream is unchanged.'
+        description: 'Run the pipeline even if upstream is unchanged.'
         required: false
         type: boolean
         default: false
+      run_docker:
+        description: 'Run the docker-build-push stage.'
+        required: false
+        type: boolean
+        default: true
+      run_balena:
+        description: 'Run the balena-block-publish stage.'
+        required: false
+        type: boolean
+        default: true
+      run_github_release:
+        description: 'Run the github-release publish stage.'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -41,6 +56,8 @@ jobs:
   release:
     permissions:
       contents: write   # monitor commit + balena.yml commit-back + GitHub Release publish
+      actions:  write   # nested monitor declares `actions: write` for `gh workflow run`;
+                        # caller must grant it even though target_workflows is empty.
     uses: blackoutsecure/bos-automation-hub/.github/workflows/release-from-upstream.yml@main
     with:
       # ----- Monitor stage (branch_head mode) -----
@@ -48,7 +65,22 @@ jobs:
       source:            branch_head
       upstream_branch:   dev
       track_file:        .github/upstream/readsb-dev.json
-      force_release:     ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
+
+      # ----- Run-the-pipeline gate -----
+      # On scheduled cron, the monitor's change-detection decides whether the
+      # release job runs at all. On manual dispatch, `force_release` lets the
+      # operator bypass that gate to (re-)run stages against the
+      # currently-tracked version even when upstream is unchanged.
+      force_release: ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
+
+      # ----- Stage toggles -----
+      # Scheduled cron: docker + balena always run; github_release stays OFF
+      # (this repo opts out of automated Release publishing).
+      # Manual dispatch: each stage is independently togglable via the
+      # `run_*` checkboxes shown in the GitHub UI. All three default to true.
+      docker:         ${{ github.event_name != 'workflow_dispatch' || inputs.run_docker }}
+      balena:         ${{ github.event_name != 'workflow_dispatch' || inputs.run_balena }}
+      github_release: ${{ github.event_name == 'workflow_dispatch' && inputs.run_github_release }}
 
       # ----- Docker stage -----
       image_name:               ${{ vars.IMAGE_NAME }}
