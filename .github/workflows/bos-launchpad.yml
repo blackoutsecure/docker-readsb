@@ -1,23 +1,31 @@
-# Single consumer-side workflow for docker-readsb. Pure caller for the hub's
-# `bos-launchpad.yml` (Blackout Secure Launchpad) reusable meta-workflow.
+# Caller for the hub's `bos-launchpad.yml` (Blackout Secure Launchpad) reusable.
 #
 #   monitor (github_branch_file mode) → release (docker → balena)
 #
 # Required vars:    DOCKERHUB_NAMESPACE, BALENA_NAMESPACE
 # Required secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN, BALENA_API_TOKEN
 #
-# `balena.yml` is NOT checked in; the hub renders it on each run from the
-# `balena_*` inputs below. See blackoutsecure/bos-automation-hub for the
-# full input reference.
+# `balena.yml` is rendered by the hub on each run from the `balena_*` inputs
+# below. See blackoutsecure/bos-automation-hub for the full input reference.
 name: Blackout Secure Launchpad
 
 on:
   schedule:
     - cron: '17 */6 * * *'   # stagger off :00 to dodge org cron pile-ups
   workflow_dispatch:
+    # `github_release` isn't exposed — this repo opts out of automated
+    # GitHub Releases entirely (hub default `false`).
     inputs:
-      force_release:
-        description: Run the pipeline even if upstream is unchanged.
+      stage_docker:
+        description: 'Stage: docker build & push'
+        type: boolean
+        default: true
+      stage_balena:
+        description: 'Stage: balena block publish'
+        type: boolean
+        default: true
+      force_run:
+        description: 'Force: run pipeline even if upstream unchanged'
         type: boolean
         default: false
 
@@ -35,27 +43,24 @@ jobs:
       security-events: write   # nested Docker Scout SARIF upload
     uses: blackoutsecure/bos-automation-hub/.github/workflows/bos-launchpad.yml@main
     with:
-      # ── Stage toggles ────────────────────────────────────────────
-      # Every launchpad stage defaults to `false`. Explicit opt-in so
-      # the hub can grow new stages without quietly enabling them here.
-      # This repo opts out of automated GitHub Releases (`github_release`
-      # left at its `false` default).
-      docker:           true
-      balena:           true
+      # Schedule runs use the defaults; manual runs honour the dispatch
+      # checkboxes. Every launchpad stage defaults to `false` in the
+      # hub — opt in explicitly. `github_release` is left at its default
+      # (this repo doesn't publish GitHub Releases).
+      docker:           ${{ github.event_name != 'workflow_dispatch' || inputs.stage_docker }}
+      balena:           ${{ github.event_name != 'workflow_dispatch' || inputs.stage_balena }}
 
       upstream_repo:    wiedehopf/readsb
       source:           github_branch_file
       upstream_branch:  dev
       track_file:       .github/upstream/readsb-dev.json
-      force_release:    ${{ github.event_name == 'workflow_dispatch' && inputs.force_release }}
+      force_run:        ${{ github.event_name == 'workflow_dispatch' && inputs.force_run }}
 
       image_name:          readsb
       dockerhub_namespace: ${{ vars.DOCKERHUB_NAMESPACE }}
-      # `block_name` defaults to `image_name` ("readsb") when omitted.
       balena_namespace:    ${{ vars.BALENA_NAMESPACE }}
 
-      # Hub defaults: balena_generate_yml=false.
-      # This repo uses a dynamically rendered balena.yml.
+      # Render balena.yml dynamically — no checked-in copy.
       balena_generate_yml: true
 
       balena_description: >-
