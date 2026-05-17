@@ -35,6 +35,14 @@ jobs:
       security-events: write   # nested Docker Scout SARIF upload
     uses: blackoutsecure/bos-automation-hub/.github/workflows/bos-launchpad.yml@main
     with:
+      # ── Stage toggles ────────────────────────────────────────────
+      # Every launchpad stage defaults to `false`. Explicit opt-in so
+      # the hub can grow new stages without quietly enabling them here.
+      # This repo opts out of automated GitHub Releases (`github_release`
+      # left at its `false` default).
+      docker:           true
+      balena:           true
+
       upstream_repo:    wiedehopf/readsb
       source:           github_branch_file
       upstream_branch:  dev
@@ -43,12 +51,11 @@ jobs:
 
       image_name:          readsb
       dockerhub_namespace: ${{ vars.DOCKERHUB_NAMESPACE }}
-      block_name:          readsb
+      # `block_name` defaults to `image_name` ("readsb") when omitted.
       balena_namespace:    ${{ vars.BALENA_NAMESPACE }}
 
-      # Hub defaults: github_release=true, balena_generate_yml=false.
-      # This repo opts out of automated Releases and uses dynamic balena.yml.
-      github_release:      false
+      # Hub defaults: balena_generate_yml=false.
+      # This repo uses a dynamically rendered balena.yml.
       balena_generate_yml: true
 
       balena_description: >-
