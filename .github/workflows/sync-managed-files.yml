@@ -1,33 +1,14 @@
 # Caller for the hub's `sync-managed-files.yml` reusable.
 #
-# ---------------------------------------------------------------------------
-# RETIREMENT NOTICE (staged for removal in a follow-up commit):
-# ---------------------------------------------------------------------------
-# The `bos_launchpad_sync_files` service below replaces this entire
-# hand-authored caller with a hub-managed kicker at
-# `.github/workflows/bos-launchpad-sync-files.yml`. The next scheduled
-# run of this caller will write that kicker. Once the new kicker is
-# verified working in this repo, DELETE this file — the kicker reads
-# the `sync_files:` block in `.bos-launchpad.yaml` at the repo root
-# and supersedes this caller entirely.
-# ---------------------------------------------------------------------------
-#
-# Keeps managed dotfile sections (`.gitignore`, `.dockerignore`,
-# `.editorconfig`, `.gitattributes`) AND canonical whole files
-# (`root/usr/local/bin/log-functions.sh`) in sync with the hub. Section
-# services only touch text between the `# >>> bos-automation-hub:<svc>
-# >>>` markers; everything else is preserved. Whole-file services own
-# the entire body — local edits to them will be reverted on next run.
-#
-# Enabled services are listed under `services:` below. Removing a
-# service from that list is safe: existing managed sections / files
-# for it are left untouched.
+# docker-readsb is a Docker + s6-overlay shell-script project; the
+# `logger` whole-file service ships the canonical
+# `root/usr/local/bin/log-functions.sh`.
 
 name: Sync managed files
 
 on:
   schedule:
-    - cron: '23 13 * * 1'   # Monday 13:23 UTC — stagger off :00
+    - cron: '23 13 * * 1'
   workflow_dispatch:
   push:
     branches: [main]
@@ -44,8 +25,8 @@ concurrency:
 jobs:
   sync:
     permissions:
-      contents: write   # required to push the canonical content back
-    uses: blackoutsecure/bos-automation-hub/.github/workflows/sync-managed-files.yml@main
+      contents: write
+    uses: meshsky/meshsky-automation/.github/workflows/sync-managed-files.yml@main
     with:
       services: |
         common
@@ -53,4 +34,4 @@ jobs:
         balena
         logger
         lf_line_endings
-        bos_launchpad_sync_files
+        dependabot_actions
