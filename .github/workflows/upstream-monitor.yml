@@ -1,0 +1,228 @@
+name: Monitor Upstream readsb
+
+# Watches wiedehopf/readsb (the upstream source we build from) for new commits
+# on the `dev` branch and opens a PR against this repo when the tracked
+# metadata in .github/upstream/readsb-dev.json drifts.
+#
+# This workflow does NOT publish images, does NOT cut releases, and does
+# NOT push directly to main. Its only side effect is opening a pull
+# request that a reviewer merges manually.
+
+on:
+  schedule:
+    # Every 6 hours, offset 7 minutes off the hour to avoid the herd.
+    - cron: '7 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Open a PR even if upstream metadata is unchanged
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-monitor-readsb
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: wiedehopf/readsb
+  UPSTREAM_BRANCH: dev
+  UPSTREAM_VERSION_URL: https://raw.githubusercontent.com/wiedehopf/readsb/dev/VERSION
+  UPSTREAM_VERSION_URL_ALT: https://raw.githubusercontent.com/wiedehopf/readsb/dev/version
+  TRACK_FILE: .github/upstream/readsb-dev.json
+  PR_BRANCH_PREFIX: upstream/readsb-dev
+  GIT_USER_NAME: github-actions[bot]
+  GIT_USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream metadata and detect drift
+        id: check
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$(dirname "${TRACK_FILE}")"
+
+          echo "--- Fetching upstream metadata ---"
+          echo "Repo:   ${UPSTREAM_REPO}"
+          echo "Branch: ${UPSTREAM_BRANCH}"
+
+          upstream_version="$(curl -fsSL "${UPSTREAM_VERSION_URL}" | tr -d '[:space:]' || true)"
+          if [ -z "${upstream_version}" ]; then
+            upstream_version="$(curl -fsSL "${UPSTREAM_VERSION_URL_ALT}" | tr -d '[:space:]' || true)"
+          fi
+          upstream_commit="$(git ls-remote "https://github.com/${UPSTREAM_REPO}.git" "refs/heads/${UPSTREAM_BRANCH}" | cut -f1)"
+
+          if [ -z "${upstream_version}" ] || [ -z "${upstream_commit}" ]; then
+            echo "ERROR: Failed to resolve upstream version or commit"
+            exit 1
+          fi
+
+          echo "Upstream version: ${upstream_version}"
+          echo "Upstream commit:  ${upstream_commit}"
+
+          jq -n \
+            --arg repo "${UPSTREAM_REPO}" \
+            --arg source "github_branch_file" \
+            --arg branch "${UPSTREAM_BRANCH}" \
+            --arg version "${upstream_version}" \
+            --arg commit "${upstream_commit}" \
+            '{repo: $repo, source: $source, branch: $branch, version: $version, commit: $commit}' \
+            > /tmp/upstream-readsb-dev.json
+
+          echo "upstream_version=${upstream_version}" >> "$GITHUB_OUTPUT"
+          echo "upstream_commit=${upstream_commit}" >> "$GITHUB_OUTPUT"
+          echo "upstream_short=${upstream_commit:0:7}" >> "$GITHUB_OUTPUT"
+
+          echo "--- Comparing with tracked metadata ---"
+          if [ -f "${TRACK_FILE}" && cmp -s "${TRACK_FILE}" /tmp/upstream-readsb-dev.json; then
+            echo "Result: NO CHANGE"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Result: DRIFT DETECTED"
+            if [ -f "${TRACK_FILE}" ]; then
+              diff "${TRACK_FILE}" /tmp/upstream-readsb-dev.json || true
+            else
+              echo "(no prior tracked file)"
+            fi
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Decide whether to open a PR
+        id: gate
+        env:
+          CHANGED: ${{ steps.check.outputs.changed }}
+          EVENT_NAME: ${{ github.event_name }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+          if [ "${CHANGED}" = "true" ]; then
+            echo "open_pr=true" >> "$GITHUB_OUTPUT"
+            echo "reason=upstream metadata changed" >> "$GITHUB_OUTPUT"
+          elif [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${FORCE:-false}" = "true" ]; then
+            echo "open_pr=true" >> "$GITHUB_OUTPUT"
+            echo "reason=force requested via workflow_dispatch" >> "$GITHUB_OUTPUT"
+          else
+            echo "open_pr=false" >> "$GITHUB_OUTPUT"
+            echo "reason=no drift" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare PR branch and commit
+        if: steps.gate.outputs.open_pr == 'true'
+        id: branch
+        env:
+          UPSTREAM_VERSION: ${{ steps.check.outputs.upstream_version }}
+          UPSTREAM_SHORT: ${{ steps.check.outputs.upstream_short }}
+        run: |
+          set -euo pipefail
+
+          BRANCH="${PR_BRANCH_PREFIX}/${UPSTREAM_VERSION}-${UPSTREAM_SHORT}"
+          echo "branch=${BRANCH}" >> "$GITHUB_OUTPUT"
+
+          git config user.name "${GIT_USER_NAME}"
+          git config user.email "${GIT_USER_EMAIL}"
+
+          if git ls-remote --exit-code --heads origin "${BRANCH}" >/dev/null 2>&1; then
+            echo "Branch ${BRANCH} already exists on origin; skipping commit/push."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git checkout -b "${BRANCH}"
+          cp /tmp/upstream-readsb-dev.json "${TRACK_FILE}"
+          git add "${TRACK_FILE}"
+
+          if git diff --cached --quiet; then
+            echo "No tracked metadata changes after copy (force-run with no drift)."
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          COMMIT_MSG="chore(ci): track readsb dev ${UPSTREAM_VERSION} (${UPSTREAM_SHORT})"
+          git commit -m "${COMMIT_MSG}"
+          git push --set-upstream origin "${BRANCH}"
+          echo "skipped=false" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update pull request
+        if: steps.gate.outputs.open_pr == 'true' && steps.branch.outputs.skipped != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          UPSTREAM_VERSION: ${{ steps.check.outputs.upstream_version }}
+          UPSTREAM_COMMIT: ${{ steps.check.outputs.upstream_commit }}
+          UPSTREAM_SHORT: ${{ steps.check.outputs.upstream_short }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          TITLE="chore: bump tracked readsb dev to ${UPSTREAM_VERSION} (${UPSTREAM_SHORT})"
+
+          BODY=$(cat <<EOF
+          Upstream **wiedehopf/readsb** (\`${UPSTREAM_BRANCH}\`) has new commits.
+
+          | Field | Value |
+          | --- | --- |
+          | Upstream repo | https://github.com/${UPSTREAM_REPO} |
+          | Branch | \`${UPSTREAM_BRANCH}\` |
+          | Version | \`${UPSTREAM_VERSION}\` |
+          | Commit | [\`${UPSTREAM_SHORT}\`](https://github.com/${UPSTREAM_REPO}/commit/${UPSTREAM_COMMIT}) |
+
+          ## Reviewer checklist
+
+          - [ ] Skim upstream commits since last bump for security or behavioral changes
+          - [ ] Confirm Dockerfile builds clean against updated readsb HEAD
+          - [ ] Merge when ready; release/publish remains a separate step
+
+          This PR was opened by .github/workflows/upstream-monitor.yml. No publish or release workflow runs as a side effect.
+          EOF
+          )
+
+          existing="$(gh pr list --head "${BRANCH}" --state open --json number --jq '.[0].number' || true)"
+          if [ -n "${existing}" ]; then
+            echo "PR #${existing} already open for branch ${BRANCH}; nothing to do."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "${DEFAULT_BRANCH}" \
+            --head "${BRANCH}" \
+            --title "${TITLE}" \
+            --body "${BODY}" \
+            --label "upstream-bump"
+
+      - name: Summary
+        if: always()
+        env:
+          REASON: ${{ steps.gate.outputs.reason }}
+          OPEN_PR: ${{ steps.gate.outputs.open_pr }}
+          BRANCH: ${{ steps.branch.outputs.branch }}
+          UPSTREAM_VERSION: ${{ steps.check.outputs.upstream_version }}
+          UPSTREAM_SHORT: ${{ steps.check.outputs.upstream_short }}
+        run: |
+          {
+            echo "## Upstream readsb Monitor"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Upstream | \`${UPSTREAM_REPO}\` (\`${UPSTREAM_BRANCH}\`) |"
+            echo "| Tracked version | \`${UPSTREAM_VERSION:-unknown}\` |"
+            echo "| Tracked commit | \`${UPSTREAM_SHORT:-unknown}\` |"
+            echo "| Action | ${OPEN_PR:-false} |"
+            echo "| Reason | ${REASON:-unknown} |"
+            if [ "${OPEN_PR}" = "true" ] && [ -n "${BRANCH:-}" ]; then
+              echo "| PR branch | \`${BRANCH}\` |"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
