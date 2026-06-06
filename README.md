@@ -1347,6 +1347,19 @@ docker-compose up -d  # if using compose
 docker inspect -f '{{ index .Config.Labels "build_version" }}' blackoutsecure/readsb:latest
 ```
 
+### Upstream Monitoring Workflow
+
+This repo includes `.github/workflows/upstream-monitor.yml` to track
+`wiedehopf/readsb` on the `dev` branch. On drift, it opens a PR that updates
+`.github/upstream/readsb-dev.json`.
+
+- Schedule: every 6 hours
+- Manual run: Actions -> Monitor Upstream readsb -> Run workflow
+- Optional force run: set `force=true` when running manually to open a PR even
+  when metadata is unchanged
+
+This workflow never publishes images and never pushes directly to `main`.
+
 ---
 
 ## Resources
