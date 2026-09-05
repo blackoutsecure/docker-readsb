@@ -11,7 +11,7 @@ name: Monitor Upstream readsb
 on:
   schedule:
     # Every 6 hours, offset 7 minutes off the hour to avoid the herd.
-    - cron: '7 */6 * * *'
+    - cron: "7 */6 * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -88,7 +88,7 @@ jobs:
           echo "upstream_short=${upstream_commit:0:7}" >> "$GITHUB_OUTPUT"
 
           echo "--- Comparing with tracked metadata ---"
-          if [ -f "${TRACK_FILE}" && cmp -s "${TRACK_FILE}" /tmp/upstream-readsb-dev.json; then
+          if [ -f "${TRACK_FILE}" ] && cmp -s "${TRACK_FILE}" /tmp/upstream-readsb-dev.json; then
             echo "Result: NO CHANGE"
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
