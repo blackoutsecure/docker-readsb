@@ -227,11 +227,11 @@ These apply to every repository in the `blackoutsecure` organization.
 
 ### Branch model
 
-- `dev` is the default branch and where all work lands.
-- `main` is the promoted stable runtime that consumers reference through `@main`.
-- Version tags (`vX.Y.Z` and a floating `vX`) point at promoted runtime commits.
-- Promotion is driven from `bos-automation-hub`. Do not push directly to `main` and do not
-  move tags by hand.
+- `main` is the default and only long-lived branch.
+- Create short-lived feature branches from `main` and land changes through pull requests.
+  Preserve required checks and reviews; a permanent `dev` branch is not needed.
+- Keep existing version tags and configured release automation. Do not push directly to
+  `main` or move tags by hand.
 
 ### Centrally managed files - do not hand-edit here
 
